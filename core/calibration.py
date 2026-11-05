@@ -6,11 +6,15 @@ vivia só na memória e se perdia ao fechar o programa -- toda sessão
 exigia recalibrar. Agora cada perfil (ex: um paciente/usuário) tem um
 arquivo JSON próprio em `perfis/`, com data da última calibração e uma
 nota simples de qualidade.
+
+O carregamento valida o conteúdo: um JSON truncado ou editado à mão não
+pode derrubar o aplicativo com ``KeyError``.
 """
 from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TypedDict
@@ -35,8 +39,8 @@ class GerenciadorCalibracao:
     def _caminho(self, nome_perfil: str) -> Path:
         # Validação estrita: rejeita (em vez de apenas filtrar) qualquer
         # caractere fora do permitido. Só remover caracteres inválidos
-        # (como fazia a versão anterior) permitiria que "../../etc/passwd"
-        # virasse "etcpasswd" silenciosamente -- aqui isso é bloqueado.
+        # permitiria que "../../etc/passwd" virasse "etcpasswd"
+        # silenciosamente -- aqui isso é bloqueado.
         nome = nome_perfil.strip()
         if not nome or not all(c.isalnum() or c in ("_", "-") for c in nome):
             raise ValueError(
@@ -46,6 +50,7 @@ class GerenciadorCalibracao:
         return self.pasta / f"{nome}.json"
 
     def salvar(self, nome_perfil: str, media_esq: float, media_dir: float) -> DadosCalibracao:
+        _validar_medias(media_esq, media_dir)
         qualidade = "boa" if abs(media_dir - media_esq) >= self.diferenca_minima_boa else "fraca"
         dados: DadosCalibracao = {
             "nome": nome_perfil,
@@ -64,18 +69,62 @@ class GerenciadorCalibracao:
         if not caminho.exists():
             return None
         try:
-            return json.loads(caminho.read_text(encoding="utf-8"))
+            dados = json.loads(caminho.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
             logger.error("Falha ao ler calibração de '%s': %s", nome_perfil, e)
             return None
+        validado = _validar_dados(dados)
+        if validado is None:
+            logger.error("Calibração de '%s' inválida (estrutura/valores). Ignorando.", nome_perfil)
+        return validado
 
     def listar_perfis(self) -> list[str]:
-        return sorted(p.stem for p in self.pasta.glob("*.json"))
+        # Ignora os arquivos da prancha (<nome>.prancha.json): eles têm o
+        # mesmo perfil, mas não são uma calibração SIM/NÃO.
+        return sorted(
+            p.stem for p in self.pasta.glob("*.json")
+            if not p.name.endswith(".prancha.json")
+        )
 
     def calibracao_esta_vencida(self, dados: DadosCalibracao, validade_dias: int = 7) -> bool:
         """Indica se vale sugerir recalibração em vez de reusar automaticamente."""
         try:
-            data = datetime.fromisoformat(dados["data_calibracao"])
+            data = datetime.fromisoformat(str(dados["data_calibracao"]))
         except (KeyError, ValueError):
             return True
         return datetime.now() - data > timedelta(days=validade_dias)
+
+
+def _validar_medias(media_esq: float, media_dir: float) -> None:
+    for nome, valor in (("media_esquerda", media_esq), ("media_direita", media_dir)):
+        if not isinstance(valor, (int, float)) or isinstance(valor, bool):
+            raise ValueError(f"{nome} deve ser numérico")
+        if not math.isfinite(valor) or not 0.0 <= float(valor) <= 1.0:
+            raise ValueError(f"{nome} deve estar entre 0.0 e 1.0")
+
+
+def _validar_dados(dados: object) -> DadosCalibracao | None:
+    if not isinstance(dados, dict):
+        return None
+    try:
+        _validar_medias(dados["media_esquerda"], dados["media_direita"])
+        data = dados["data_calibracao"]
+        if not isinstance(data, str) or not data:
+            return None
+        datetime.fromisoformat(data)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    nome = dados.get("nome")
+    qualidade = dados.get("qualidade", "desconhecida")
+    if not isinstance(nome, str) or not isinstance(qualidade, str):
+        return None
+
+    normalizado: DadosCalibracao = {
+        "nome": nome,
+        "media_esquerda": float(dados["media_esquerda"]),
+        "media_direita": float(dados["media_direita"]),
+        "data_calibracao": data,
+        "qualidade": qualidade,
+    }
+    return normalizado

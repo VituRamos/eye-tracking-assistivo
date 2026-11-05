@@ -1,0 +1,4 @@
+-r requirements-dev.txt
+
+# Empacotamento do executavel
+pyinstaller>=6.10,<7

@@ -70,3 +70,46 @@ class TestNomesInvalidos:
     def test_nome_com_caracteres_invalidos_levanta_erro(self, gerenciador):
         with pytest.raises(ValueError):
             gerenciador.salvar("../../etc/passwd", 0.3, 0.7)
+
+    def test_nome_vazio_levanta_erro(self, gerenciador):
+        with pytest.raises(ValueError):
+            gerenciador.salvar("   ", 0.3, 0.7)
+
+
+class TestValidacaoDeConteudo:
+    def _escrever(self, gerenciador, nome, texto):
+        (gerenciador.pasta / f"{nome}.json").write_text(texto, encoding="utf-8")
+
+    def test_json_corrompido_retorna_none(self, gerenciador):
+        self._escrever(gerenciador, "quebrado", "{nao e json")
+        assert gerenciador.carregar("quebrado") is None
+
+    def test_chaves_faltando_retorna_none(self, gerenciador):
+        self._escrever(gerenciador, "incompleto", '{"nome": "x"}')
+        assert gerenciador.carregar("incompleto") is None
+
+    def test_media_fora_da_faixa_retorna_none(self, gerenciador):
+        self._escrever(
+            gerenciador,
+            "fora",
+            '{"nome": "x", "media_esquerda": 1.5, "media_direita": 0.5, '
+            '"data_calibracao": "2026-01-01T00:00:00", "qualidade": "boa"}',
+        )
+        assert gerenciador.carregar("fora") is None
+
+    def test_data_invalida_retorna_none(self, gerenciador):
+        self._escrever(
+            gerenciador,
+            "data_ruim",
+            '{"nome": "x", "media_esquerda": 0.3, "media_direita": 0.7, '
+            '"data_calibracao": "ontem", "qualidade": "boa"}',
+        )
+        assert gerenciador.carregar("data_ruim") is None
+
+    def test_arquivo_com_lista_retorna_none(self, gerenciador):
+        self._escrever(gerenciador, "lista", "[1, 2, 3]")
+        assert gerenciador.carregar("lista") is None
+
+    def test_salvar_rejeita_nan(self, gerenciador):
+        with pytest.raises(ValueError):
+            gerenciador.salvar("nan", float("nan"), 0.7)

@@ -1,29 +1,52 @@
 # =====================================================================
-# Configuração central do Eye-Tracking Assistivo
+# Configuração central do Eye-Tracking Assistivo V2.1
 # Ajuste estes valores sem precisar tocar em código Python.
 # =====================================================================
 
 deteccao:
-  frames_para_selecionar: 15 # frames olhando fixo p/ confirmar seleção (~0.7s a 20fps)
-  num_frames_calibracao: 90 # frames coletados por fase de calibração
-  diferenca_minima_calibracao: 0.03 # abaixo disso, avisa que a calibração ficou fraca
-  alpha_ema: 0.35 # suavização exponencial do ratio (0=muito suave/lento, 1=sem suavização)
+  dwell_ms: 700            # tempo de olhar fixo para confirmar a opção
+  tolerancia_perda_ms: 180 # perda curta de foco tolerada sem zerar o dwell
+  exibicao_confirmacao_ms: 1500 # quanto tempo "SELECIONADO" fica na tela
+  alpha_ema: 0.35          # 0=muito suave/lento, 1=sem suavização
   tamanho_historico_grafico: 200
   limite_frames_sem_rosto: 60 # ~2s a 30fps antes de avisar "reposicione o rosto"
 
-  # Confirmação por piscada (alternativa ao dwell time / olhar fixo)
+  # Confirmação por piscada (alternativa ao dwell time)
   piscada:
     habilitada: true
-    limiar_ear: 0.15 # abaixo disso, considera olho fechado
-    frames_minimos_piscada: 8 # ~0.3-0.5s de olho fechado para contar como confirmação
+    limiar_ear: 0.15       # abaixo disso, considera olho fechado
+    piscada_ms: 350        # tempo mínimo de olho fechado para confirmar
+    foco_minimo_ms: 150    # tempo mínimo de foco antes de aceitar a piscada
+
+calibracao:
+  duracao_ms: 3000         # duração de cada fase (ESQUERDA e DIREITA)
+  min_amostras: 30         # amostras válidas mínimas por fase
+  max_yaw_graus: 25.0      # acima disso, a cabeça está virada demais: ignora
+  diferenca_minima: 0.03   # abaixo disso, a calibração é considerada fraca
+
+prancha:
+  # Distância mínima (em ratio de íris) entre dois cartões calibrados.
+  # Abaixo disso, dois blocos ficam "no mesmo lugar" e a seleção fica
+  # ambígua -- a calibração é marcada como fraca.
+  distancia_minima_boa: 0.02
+  # Distância máxima do olhar até o cartão calibrado mais próximo para
+  # ainda considerar que o usuário está olhando para ele (evita escolher
+  # um bloco quando o olhar está no meio da tela / fora da prancha).
+  raio_max: 0.55
 
 camera:
   indice: 0
   largura: 1280
   altura: 720
+  fps: 30
+  # auto = tenta MSMF, depois DirectShow e por fim o backend padrao.
+  # Use "dshow" ou "msmf" para forcar um backend especifico.
+  backend: "auto"
+  # Tempo maximo (ms) esperando o primeiro frame ao abrir a camera.
+  timeout_inicial_ms: 6000
 
 modelo:
-  caminho: "face_landmarker.task"
+  caminho: "models/face_landmarker.task"
   url: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
   sha256_esperado: "" # opcional: preencha para validar integridade do download
 
@@ -35,6 +58,9 @@ logs:
   pasta: "logs"
   nivel: "INFO"
 
+feedback:
+  som: true # bipe curto ao confirmar a seleção
+
 janela:
-  titulo: "Eye-Tracking Assistivo V2.0 (MediaPipe)"
+  titulo: "Eye-Tracking Assistivo V2.1 (MediaPipe)"
   fullscreen: true

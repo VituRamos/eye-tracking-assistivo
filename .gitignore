@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Build / distribuicao
+build/
+dist/
+*.spec.bak
+diagnostico.txt
+diagnostico_camera.txt
+
+# Dados de runtime
+logs/*.log
+perfis/*.json
+!perfis/.gitkeep
+models/*.task
+!models/.gitkeep
+
+# Sistema
+.DS_Store
+Thumbs.db

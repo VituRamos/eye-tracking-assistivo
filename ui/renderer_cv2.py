@@ -13,6 +13,30 @@ import cv2
 import numpy as np
 
 
+def preparar_frame(frame, largura: int, altura: int):
+    """
+    Garante um canvas no tamanho de projeto (ex.: 1280x720).
+
+    Se a câmera entregar outra resolução, redimensiona preservando a
+    proporção e adiciona barras pretas. Assim o layout (que usa
+    coordenadas fixas) nunca "estoura" a tela em webcams 640x480.
+    """
+    altura_atual, largura_atual = frame.shape[:2]
+    if (largura_atual, altura_atual) == (largura, altura):
+        return frame
+
+    escala = min(largura / largura_atual, altura / altura_atual)
+    nova_largura = max(1, round(largura_atual * escala))
+    nova_altura = max(1, round(altura_atual * escala))
+    redimensionado = cv2.resize(frame, (nova_largura, nova_altura), interpolation=cv2.INTER_LINEAR)
+
+    canvas = np.zeros((altura, largura, 3), dtype=frame.dtype)
+    x = (largura - nova_largura) // 2
+    y = (altura - nova_altura) // 2
+    canvas[y:y + nova_altura, x:x + nova_largura] = redimensionado
+    return canvas
+
+
 def extrair_roi_do_olho(frame, landmarks, indices_cantos, indices_iris, largura, altura):
     """
     Monta um recorte (ROI) da região do olho para exibição de debug,
@@ -48,6 +72,8 @@ def extrair_roi_do_olho(frame, landmarks, indices_cantos, indices_iris, largura,
 
 
 def desenhar_recortes_debug(frame, roi_esq, roi_dir):
+    if frame.shape[0] < 110 or frame.shape[1] < 310:
+        return
     if roi_esq.size > 0:
         frame[20:110, 20:160] = cv2.resize(roi_esq, (140, 90))
         cv2.rectangle(frame, (20, 20), (160, 110), (255, 255, 255), 1)
@@ -69,7 +95,9 @@ def desenhar_grafico_temporal(frame, hist_esq, hist_dir, media_esq, media_dir,
     cv2.line(frame, (x, valor_para_y(media_esq)), (x + largura_grafico, valor_para_y(media_esq)), (0, 200, 0), 1)
     cv2.line(frame, (x, valor_para_y(media_dir)), (x + largura_grafico, valor_para_y(media_dir)), (0, 0, 220), 1)
     for xi in range(x, x + largura_grafico, 8):
-        cv2.line(frame, (xi, valor_para_y(ponto_medio)), (min(xi + 4, x + largura_grafico), valor_para_y(ponto_medio)), (130, 130, 130), 1)
+        cv2.line(frame, (xi, valor_para_y(ponto_medio)),
+                 (min(xi + 4, x + largura_grafico), valor_para_y(ponto_medio)),
+                 (130, 130, 130), 1)
 
     def desenhar_serie(historico, cor):
         pontos = list(historico)
@@ -90,8 +118,10 @@ def desenhar_grafico_temporal(frame, hist_esq, hist_dir, media_esq, media_dir,
                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
     cv2.putText(frame, "olho esq", (x + 8, y + altura_grafico - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (255, 255, 0), 1)
     cv2.putText(frame, "olho dir", (x + 90, y + altura_grafico - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (255, 0, 255), 1)
-    cv2.putText(frame, "ref. SIM", (x + largura_grafico - 150, y + altura_grafico - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (0, 200, 0), 1)
-    cv2.putText(frame, "ref. NAO", (x + largura_grafico - 75, y + altura_grafico - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (0, 0, 220), 1)
+    cv2.putText(frame, "ref. SIM", (x + largura_grafico - 150, y + altura_grafico - 8),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.30, (0, 200, 0), 1)
+    cv2.putText(frame, "ref. NAO", (x + largura_grafico - 75, y + altura_grafico - 8),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.30, (0, 0, 220), 1)
 
 
 def desenhar_painel_sim_nao(frame, overlay, largura, altura, metade_x, cor_sim, cor_nao, intensidade=0.25):
@@ -100,7 +130,8 @@ def desenhar_painel_sim_nao(frame, overlay, largura, altura, metade_x, cor_sim, 
     cv2.addWeighted(overlay, intensidade, frame, 1 - intensidade, 0, frame)
     cv2.line(frame, (metade_x, 0), (metade_x, altura), (255, 255, 255), 2)
     cv2.putText(frame, "SIM", (metade_x // 2 - 50, altura // 2), cv2.FONT_HERSHEY_DUPLEX, 2, (255, 255, 255), 3)
-    cv2.putText(frame, "NAO", (metade_x + (metade_x // 2) - 50, altura // 2), cv2.FONT_HERSHEY_DUPLEX, 2, (255, 255, 255), 3)
+    cv2.putText(frame, "NAO", (metade_x + (metade_x // 2) - 50, altura // 2),
+                cv2.FONT_HERSHEY_DUPLEX, 2, (255, 255, 255), 3)
 
 
 def desenhar_aviso_sem_rosto(frame, largura, altura):
@@ -109,26 +140,103 @@ def desenhar_aviso_sem_rosto(frame, largura, altura):
                 (largura // 2 - 420, altura // 2 + 10), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 2)
 
 
-def desenhar_menu(frame, largura, altura, calibracao_ja_feita, media_esq, media_dir):
+def desenhar_sem_sinal(frame, largura, altura, segundos: float, backend: str = ""):
+    """
+    Tela cheia de aviso quando a câmera parou de entregar imagens.
+
+    Evita a pior experiência possível: uma janela preta que parece
+    travada, sem dizer ao cuidador o que fazer.
+    """
+    cv2.rectangle(frame, (0, 0), (largura, altura), (18, 18, 18), -1)
+
+    if segundos == float("inf"):
+        detalhe = "A câmera não entregou nenhuma imagem desde a abertura."
+    else:
+        decorrido = "menos de 1 segundo" if segundos < 1 else f"{segundos:.0f} segundos"
+        detalhe = f"Última imagem recebida há {decorrido}."
+
+    cv2.putText(frame, "SEM SINAL DA CAMERA", (largura // 2 - 300, altura // 2 - 120),
+                cv2.FONT_HERSHEY_DUPLEX, 1.4, (0, 200, 255), 3)
+    cv2.putText(frame, detalhe, (largura // 2 - 340, altura // 2 - 60),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (230, 230, 230), 2)
+
+    dicas = [
+        "1. Feche outros programas que usam a webcam (Teams, Zoom, navegador).",
+        "2. Verifique o cabo e tente outra porta USB.",
+        "3. Confira Configuracoes > Privacidade > Camera.",
+        "4. Pressione [Q] para sair e reabra o programa.",
+    ]
+    for i, dica in enumerate(dicas):
+        cv2.putText(frame, dica, (largura // 2 - 360, altura // 2 + 10 + i * 38),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.62, (200, 200, 200), 1)
+
+    if backend:
+        cv2.putText(frame, f"Backend em uso: {backend}", (largura // 2 - 360, altura // 2 + 180),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (140, 140, 140), 1)
+
+
+def desenhar_aviso(frame, largura, altura, texto):
+    """Faixa de aviso temporário (ex.: calibração fraca, perfil inválido)."""
+    (largura_texto, _altura_texto), _ = cv2.getTextSize(texto, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2)
+    x1 = max(10, largura // 2 - largura_texto // 2 - 20)
+    x2 = min(largura - 10, largura // 2 + largura_texto // 2 + 20)
+    y1 = altura - 95
+    y2 = altura - 55
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (20, 20, 20), -1)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 200, 255), 1)
+    cv2.putText(frame, texto, (x1 + 14, y2 - 12),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 2)
+
+
+def desenhar_menu(frame, largura, altura, calibracao_valida, media_esq, media_dir,
+                  perfil=None, diferenca_minima=0.03, prancha_valida=False,
+                  prancha_fraca=False):
     cv2.rectangle(frame, (0, 0), (largura, altura), (30, 30, 30), -1)
-    cv2.putText(frame, "EYE-TRACKING ASSISTIVO", (largura // 2 - 260, altura // 2 - 150),
-                cv2.FONT_HERSHEY_DUPLEX, 1.3, (255, 255, 255), 2)
-    cv2.putText(frame, "[P]  Selecionar perfil", (largura // 2 - 150, altura // 2 - 60),
-                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 255), 2)
-    cv2.putText(frame, "[C]  Calibrar", (largura // 2 - 150, altura // 2 - 10),
-                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 255), 2)
-    cv2.putText(frame, "[I]  Iniciar SIM / NAO", (largura // 2 - 150, altura // 2 + 40),
-                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2)
-    cv2.putText(frame, "[Q]  Sair", (largura // 2 - 150, altura // 2 + 90),
-                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 2)
+    cv2.putText(frame, "EYE-TRACKING ASSISTIVO v2.1", (largura // 2 - 290, altura // 2 - 200),
+                cv2.FONT_HERSHEY_DUPLEX, 1.2, (255, 255, 255), 2)
 
-    texto_status = (f"Ultima calibracao -> SIM: {media_esq:.2f}  NAO: {media_dir:.2f}"
-                    if calibracao_ja_feita else "Calibracao ainda nao feita (usando valores padrao)")
-    cv2.putText(frame, texto_status, (largura // 2 - 260, altura // 2 + 150),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+    cor_prancha = (0, 255, 0) if prancha_valida else (120, 120, 120)
+    cor_sim_nao = (0, 255, 0) if calibracao_valida else (120, 120, 120)
+    itens = [
+        ("[I]  Prancha de comunicacao", cor_prancha),
+        ("[C]  Calibrar prancha (4 blocos)", (0, 255, 255)),
+        ("[S]  Modo SIM / NAO (legado)", cor_sim_nao),
+        ("[V]  Calibrar SIM / NAO", (0, 255, 255)),
+        ("[P]  Selecionar perfil", (0, 255, 255)),
+        ("[Q]  Sair", (0, 0, 255)),
+    ]
+    for i, (texto, cor) in enumerate(itens):
+        cv2.putText(frame, texto, (largura // 2 - 230, altura // 2 - 100 + i * 48),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.85, cor, 2)
+
+    if prancha_valida:
+        texto_prancha = f"Prancha calibrada (perfil: {perfil or 'padrao'})"
+        cor_status = (0, 220, 0)
+    elif prancha_fraca:
+        texto_prancha = "Prancha fraca -- recalibre os 4 blocos com [C]"
+        cor_status = (0, 180, 255)
+    else:
+        texto_prancha = "Prancha sem calibracao -- pressione [C] para calibrar"
+        cor_status = (0, 180, 255)
+    cv2.putText(frame, texto_prancha, (largura // 2 - 380, altura // 2 + 175),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, cor_status, 1)
+
+    if calibracao_valida:
+        texto_sim_nao = (f"SIM/NAO (legado): calibrado  |  "
+                         f"SIM {media_esq:.2f}  NAO {media_dir:.2f}")
+        cor_sim_nao_status = (0, 200, 0)
+    else:
+        texto_sim_nao = "SIM/NAO (legado): sem calibracao -- use [V] se precisar"
+        cor_sim_nao_status = (150, 150, 150)
+    cv2.putText(frame, texto_sim_nao, (largura // 2 - 380, altura // 2 + 205),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.52, cor_sim_nao_status, 1)
+
+    cv2.putText(frame, "Dica: mantenha o rosto enquadrado e a cabeca ereta",
+                (largura // 2 - 300, altura - 45),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (170, 170, 170), 1)
 
 
-def desenhar_selecao_perfil(frame, largura, altura, perfis: list[str]):
+def desenhar_selecao_perfil(frame, largura, altura, perfis: list[str], perfil_ativo: str | None = None):
     cv2.rectangle(frame, (0, 0), (largura, altura), (25, 25, 40), -1)
     cv2.putText(frame, "SELECIONAR PERFIL", (largura // 2 - 220, 80),
                 cv2.FONT_HERSHEY_DUPLEX, 1.2, (255, 255, 255), 2)
@@ -136,36 +244,64 @@ def desenhar_selecao_perfil(frame, largura, altura, perfis: list[str]):
         cv2.putText(frame, "Nenhum perfil salvo ainda.", (largura // 2 - 200, 150),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 1)
     for i, nome in enumerate(perfis[:9]):
-        cv2.putText(frame, f"[{i + 1}]  {nome}", (largura // 2 - 150, 150 + i * 40),
+        marcador = "  <-- ativo" if nome == perfil_ativo else ""
+        cv2.putText(frame, f"[{i + 1}]  {nome}{marcador}", (largura // 2 - 150, 150 + i * 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-    cv2.putText(frame, "[N] Novo perfil    [M] Voltar ao menu", (largura // 2 - 220, altura - 60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 150), 1)
+    if len(perfis) > 9:
+        cv2.putText(frame, f"(mostrando 9 de {len(perfis)} perfis)", (largura // 2 - 150, 150 + 9 * 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
+    cv2.putText(frame, "[N] Novo perfil    [M] Voltar ao menu", (largura // 2 - 260, altura - 60),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 180), 1)
+
+
+def desenhar_novo_perfil(frame, largura, altura, nome_digitado: str):
+    cv2.rectangle(frame, (0, 0), (largura, altura), (25, 40, 25), -1)
+    cv2.putText(frame, "NOVO PERFIL", (largura // 2 - 150, 100),
+                cv2.FONT_HERSHEY_DUPLEX, 1.2, (255, 255, 255), 2)
+    cv2.putText(frame, "Digite um nome (letras, numeros, '_' ou '-'):",
+                (largura // 2 - 300, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
+    cv2.rectangle(frame, (largura // 2 - 250, 220), (largura // 2 + 250, 290), (10, 10, 10), -1)
+    cv2.rectangle(frame, (largura // 2 - 250, 220), (largura // 2 + 250, 290), (255, 255, 255), 2)
+    cv2.putText(frame, nome_digitado + "_", (largura // 2 - 235, 268),
+                cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 255, 255), 2)
+    cv2.putText(frame, "[ENTER] Confirmar e calibrar    [ESC] Cancelar",
+                (largura // 2 - 310, altura - 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 180), 1)
+
+
+def desenhar_calibracao_concluida(frame, largura, altura, sucesso, media_esq, media_dir, diferenca):
+    cor_fundo = (20, 60, 20) if sucesso else (60, 20, 20)
+    cv2.rectangle(frame, (0, 0), (largura, altura), cor_fundo, -1)
+    titulo = "CALIBRACAO CONCLUIDA!" if sucesso else "CALIBRACAO FRACA"
+    cv2.putText(frame, titulo, (largura // 2 - 260, altura // 2 - 80),
+                cv2.FONT_HERSHEY_DUPLEX, 1.2, (255, 255, 255), 2)
+    cv2.putText(frame, f"SIM: {media_esq:.2f}   NAO: {media_dir:.2f}   Separacao: {diferenca:.3f}",
+                (largura // 2 - 300, altura // 2 - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    if sucesso:
+        mensagem = "Perfil salvo. Aperte ENTER para voltar ao menu."
+    else:
+        mensagem = ("Repita a calibracao olhando mais para os cantos da tela "
+                    "(diferenca minima nao atingida).")
+    cv2.putText(frame, mensagem, (largura // 2 - 420, altura // 2 + 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 1)
+    cv2.putText(frame, "Aperte [ENTER] para voltar ao menu",
+                (largura // 2 - 230, altura // 2 + 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
 
 
 def desenhar_selecionado(frame, largura, altura, opcao_confirmada):
-
-    # Texto que será exibido
     texto = f"SELECIONADO: {opcao_confirmada}"
-    
-    # Configurações de fonte e tamanho
     fonte = cv2.FONT_HERSHEY_SIMPLEX
     escala = 0.7
     espessura = 2
-    
-    # Obtém o tamanho (largura e altura) que o texto ocupará na tela
-    (largura_texto, altura_texto), linha_base = cv2.getTextSize(texto, fonte, escala, espessura)
+    (largura_texto, altura_texto), _ = cv2.getTextSize(texto, fonte, escala, espessura)
     padding = 10
-    
-    # Define as coordenadas do retângulo no canto superior direito
-    # Margem de 20 pixels a partir da borda direita e do topo
+
     x2 = largura - 20
     x1 = x2 - largura_texto - (padding * 2)
-    y1 = 20
+    y1 = 120
     y2 = y1 + altura_texto + (padding * 2)
-    
-    # Desenha o fundo da caixinha
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), -1)  # Preenchimento branco
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), 2)         # Borda preta
-    
-    # Posiciona e desenha o texto centralizado dentro da caixinha
+
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), -1)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), 2)
     cv2.putText(frame, texto, (x1 + padding, y2 - padding - 5), fonte, escala, (0, 0, 0), espessura)
