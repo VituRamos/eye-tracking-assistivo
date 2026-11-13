@@ -135,3 +135,42 @@ def distancia_minima_entre_pontos(referencias: dict[str, tuple[float, float]]) -
             menor = min(menor, math.hypot(pontos[i][0] - pontos[j][0],
                                           pontos[i][1] - pontos[j][1]))
     return 0.0 if menor is math.inf else menor
+
+
+def transladar_referencias(
+    referencias: dict[str, tuple[float, float]],
+    dx: float,
+    dy: float,
+    margem: float = 0.0,
+) -> dict[str, tuple[float, float]]:
+    """
+    Translada todos os pontos calibrados por ``(dx, dy)``.
+
+    A recentralização de um ponto desloca o mapa inteiro: se o olhar
+    medido no cartão de referência ficou ``d`` distante do ponto salvo,
+    somar ``d`` a todas as referências faz o olhar voltar a cair no cartão
+    certo sem refazer a calibração completa.
+
+    Levanta ``ValueError`` se o resultado sair da área válida (0..1). É
+    melhor recusar o ajuste do que esmagar pontos contra a borda.
+    """
+    for valor in (dx, dy):
+        if not isinstance(valor, (int, float)) or isinstance(valor, bool):
+            raise ValueError("O deslocamento deve ser numérico")
+        if not math.isfinite(float(valor)):
+            raise ValueError("O deslocamento deve ser finito")
+    if not 0.0 <= margem < 0.5:
+        raise ValueError("A margem deve estar entre 0.0 e 0.5")
+
+    minimo = margem
+    maximo = 1.0 - margem
+    novos: dict[str, tuple[float, float]] = {}
+    for bloco_id, (x, y) in referencias.items():
+        novo_x = float(x) + float(dx)
+        novo_y = float(y) + float(dy)
+        if not (minimo <= novo_x <= maximo and minimo <= novo_y <= maximo):
+            raise ValueError(
+                f"O ajuste levaria o cartão '{bloco_id}' para fora da área calibrada"
+            )
+        novos[bloco_id] = (novo_x, novo_y)
+    return novos

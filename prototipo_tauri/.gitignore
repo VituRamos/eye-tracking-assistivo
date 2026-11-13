@@ -1,0 +1,9 @@
+node_modules
+dist
+entrega
+src-tauri/target
+src-tauri/gen
+src-tauri/resources/eye-core
+*.local
+.vite
+*.tsbuildinfo

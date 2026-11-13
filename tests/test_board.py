@@ -113,3 +113,52 @@ class TestDistanciaMinima:
     def test_menos_de_dois_pontos_da_zero(self):
         assert board.distancia_minima_entre_pontos({}) == 0.0
         assert board.distancia_minima_entre_pontos({"oi": (0.5, 0.5)}) == 0.0
+
+
+class TestTransladarReferencias:
+    def _referencias(self):
+        return {
+            "oi": (0.30, 0.30),
+            "comer": (0.70, 0.30),
+            "beber": (0.30, 0.70),
+            "banheiro": (0.70, 0.70),
+        }
+
+    def test_desloca_todos_os_pontos_juntos(self):
+        novas = board.transladar_referencias(self._referencias(), 0.02, -0.03)
+        assert novas["oi"] == pytest.approx((0.32, 0.27))
+        assert novas["comer"] == pytest.approx((0.72, 0.27))
+        assert novas["beber"] == pytest.approx((0.32, 0.67))
+        assert novas["banheiro"] == pytest.approx((0.72, 0.67))
+
+    def test_preserva_a_separacao_entre_os_pontos(self):
+        antigas = self._referencias()
+        novas = board.transladar_referencias(antigas, 0.01, 0.01)
+        assert board.distancia_minima_entre_pontos(novas) == pytest.approx(
+            board.distancia_minima_entre_pontos(antigas)
+        )
+
+    def test_recusa_ajuste_que_sai_da_area(self):
+        with pytest.raises(ValueError, match="fora da área"):
+            board.transladar_referencias(self._referencias(), 0.31, 0.0)
+        with pytest.raises(ValueError, match="fora da área"):
+            board.transladar_referencias(self._referencias(), 0.0, -0.71)
+
+    def test_respeita_margem(self):
+        with pytest.raises(ValueError, match="fora da área"):
+            board.transladar_referencias(
+                self._referencias(), 0.29, 0.0, margem=0.02
+            )
+
+    @pytest.mark.parametrize("dx,dy", [(float("nan"), 0.0), (0.0, float("inf"))])
+    def test_recusa_deslocamento_nao_finito(self, dx, dy):
+        with pytest.raises(ValueError, match="finito"):
+            board.transladar_referencias(self._referencias(), dx, dy)
+
+    def test_recusa_deslocamento_nao_numerico(self):
+        with pytest.raises(ValueError, match="numérico"):
+            board.transladar_referencias(self._referencias(), "0.1", 0.0)
+
+    def test_margem_invalida(self):
+        with pytest.raises(ValueError, match="margem"):
+            board.transladar_referencias(self._referencias(), 0.0, 0.0, margem=0.6)

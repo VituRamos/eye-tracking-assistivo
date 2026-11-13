@@ -1,325 +1,370 @@
 """
-Desenho da prancha de comunicação (grade de cartões estilo PECS).
+Desenho da prancha de comunicação (grade de cartões) no novo design.
 
 Este módulo só desenha: recebe o bloco focado, o progresso do dwell e o
 bloco confirmado, e pinta a tela. Toda a decisão de *qual* bloco está
-focado vive em ``core/board.py``; a persistência da calibração, em
+focado continua em ``core/board.py``; a persistência da calibração, em
 ``core/board_calibration.py``.
 
-Os pictogramas são desenhados com primitivas do OpenCV (sem assets
-externos), então o executável continua sendo um único arquivo.
+As telas são desenhadas com a Pillow na ``Lona`` de ``ui/design.py`` e
+copiadas para o frame BGR usado pelo OpenCV. Nenhum tempo, limiar ou
+decisão de seleção é alterado aqui.
 """
 from __future__ import annotations
 
-import cv2
-import numpy as np
-
 from core import board
+from core.board import BLOCOS, Bloco
 
-# Cores (BGR)
-_FUNDO = (24, 26, 32)
-_TEXTO = (255, 255, 255)
-_TEXTO_SUAVE = (185, 190, 200)
-_TEXTO_ESCURO = (18, 18, 18)
-_DESTAQUE = (60, 240, 255)
-_CONFIRMADO = (80, 220, 90)
-_BARRA_FUNDO = (55, 58, 66)
-
-
-# =====================================================================
-# Utilitários de desenho
-# =====================================================================
-def _retangulo_arredondado(frame, x1, y1, x2, y2, raio, cor, espessura=-1):
-    raio = max(0, min(raio, (x2 - x1) // 2, (y2 - y1) // 2))
-    if raio == 0:
-        cv2.rectangle(frame, (x1, y1), (x2, y2), cor, espessura)
-        return
-
-    if espessura < 0:
-        cv2.rectangle(frame, (x1 + raio, y1), (x2 - raio, y2), cor, -1)
-        cv2.rectangle(frame, (x1, y1 + raio), (x2, y2 - raio), cor, -1)
-        for cx, cy in (
-            (x1 + raio, y1 + raio), (x2 - raio, y1 + raio),
-            (x1 + raio, y2 - raio), (x2 - raio, y2 - raio),
-        ):
-            cv2.circle(frame, (cx, cy), raio, cor, -1)
-        return
-
-    cv2.line(frame, (x1 + raio, y1), (x2 - raio, y1), cor, espessura)
-    cv2.line(frame, (x1 + raio, y2), (x2 - raio, y2), cor, espessura)
-    cv2.line(frame, (x1, y1 + raio), (x1, y2 - raio), cor, espessura)
-    cv2.line(frame, (x2, y1 + raio), (x2, y2 - raio), cor, espessura)
-    cv2.ellipse(frame, (x1 + raio, y1 + raio), (raio, raio), 0, 180, 270, cor, espessura)
-    cv2.ellipse(frame, (x2 - raio, y1 + raio), (raio, raio), 0, 270, 360, cor, espessura)
-    cv2.ellipse(frame, (x1 + raio, y2 - raio), (raio, raio), 0, 90, 180, cor, espessura)
-    cv2.ellipse(frame, (x2 - raio, y2 - raio), (raio, raio), 0, 0, 90, cor, espessura)
-
-
-def _texto_centralizado(frame, texto, cx, y, escala, cor, espessura=2,
-                        fonte=cv2.FONT_HERSHEY_DUPLEX):
-    (largura_texto, _), _ = cv2.getTextSize(texto, fonte, escala, espessura)
-    cv2.putText(frame, texto, (cx - largura_texto // 2, y), fonte, escala, cor, espessura)
+from .design import (
+    ALTURA_BASE,
+    BASE_GRADE,
+    CORES,
+    CORES_CARTAO,
+    ESPACAMENTO,
+    LARGURA_BASE,
+    MARGEM,
+    RAIO_CARTAO,
+    TOPO_GRADE,
+    Lona,
+    alerta,
+    aplicar,
+    cabecalho,
+    centro,
+    circulo_check,
+    desenhar_pictograma,
+    misturar,
+    rodape,
+)
 
 
 # =====================================================================
-# Pictogramas (desenhados com primitivas)
+# Geometria e cartões
 # =====================================================================
-def _icone_oi(frame, cx, cy, tamanho, cor):
-    esp = max(3, tamanho // 18)
-    palma = tamanho * 0.20
-    _retangulo_arredondado(
-        frame, int(cx - palma), int(cy), int(cx + palma), int(cy + tamanho * 0.36),
-        int(palma * 0.55), cor, -1,
+def _geometria(
+    bloco: Bloco,
+    topo: float = TOPO_GRADE,
+    base: float = BASE_GRADE,
+    margem: float = MARGEM,
+    espacamento: float = ESPACAMENTO,
+) -> tuple[int, int, int, int]:
+    largura_util = LARGURA_BASE - 2 * margem - espacamento
+    altura_util = ALTURA_BASE - topo - base - espacamento
+    largura_celula = largura_util // 2
+    altura_celula = altura_util // 2
+    x1 = int(margem + bloco.coluna * (largura_celula + espacamento))
+    y1 = int(topo + bloco.linha * (altura_celula + espacamento))
+    return x1, y1, x1 + largura_celula, y1 + altura_celula
+
+
+def _anel(
+    lona: Lona,
+    caixa: tuple[float, float, float, float],
+    raio: float,
+    cor: tuple[int, int, int],
+) -> None:
+    """Halo branco externo + anel interno colorido (funciona no pastel)."""
+    x1, y1, x2, y2 = caixa
+    lona.retangulo(
+        (x1 - 10, y1 - 10, x2 + 10, y2 + 10),
+        None,
+        raio + 10,
+        CORES["superficie"],
+        8,
     )
-    for i, deslocamento in enumerate((-0.18, -0.06, 0.06, 0.18)):
-        altura = tamanho * (0.34 if i in (1, 2) else 0.28)
-        x = int(cx + tamanho * deslocamento)
-        cv2.line(frame, (x, int(cy + tamanho * 0.02)),
-                 (x, int(cy - altura)), cor, esp)
-    # Polegar
-    cv2.line(frame, (int(cx - palma), int(cy + tamanho * 0.12)),
-             (int(cx - tamanho * 0.34), int(cy - tamanho * 0.06)), cor, esp)
-    # Pulso
-    cv2.line(frame, (int(cx - palma * 0.7), int(cy + tamanho * 0.34)),
-             (int(cx - palma * 0.7), int(cy + tamanho * 0.46)), cor, esp)
-    cv2.line(frame, (int(cx + palma * 0.7), int(cy + tamanho * 0.34)),
-             (int(cx + palma * 0.7), int(cy + tamanho * 0.46)), cor, esp)
+    lona.retangulo((x1 - 3, y1 - 3, x2 + 3, y2 + 3), None, raio + 3, cor, 8)
 
 
-def _icone_comer(frame, cx, cy, tamanho, cor):
-    esp = max(3, tamanho // 18)
-    # Prato
-    cv2.ellipse(frame, (int(cx), int(cy + tamanho * 0.22)),
-                (int(tamanho * 0.36), int(tamanho * 0.11)), 0, 0, 360, cor, esp)
-    cv2.ellipse(frame, (int(cx), int(cy + tamanho * 0.22)),
-                (int(tamanho * 0.22), int(tamanho * 0.06)), 0, 0, 360, cor, esp)
-    # Garfo
-    x_garfo = int(cx - tamanho * 0.24)
-    cv2.line(frame, (x_garfo, int(cy - tamanho * 0.20)),
-             (x_garfo, int(cy + tamanho * 0.10)), cor, esp)
-    for desloc in (-0.06, 0.0, 0.06):
-        cv2.line(frame, (int(x_garfo + tamanho * desloc), int(cy - tamanho * 0.36)),
-                 (int(x_garfo + tamanho * desloc), int(cy - tamanho * 0.16)), cor, esp)
-    # Faca
-    x_faca = int(cx + tamanho * 0.24)
-    cv2.line(frame, (x_faca, int(cy - tamanho * 0.20)),
-             (x_faca, int(cy + tamanho * 0.10)), cor, esp)
-    cv2.ellipse(frame, (int(x_faca + tamanho * 0.03), int(cy - tamanho * 0.20)),
-                (int(tamanho * 0.06), int(tamanho * 0.16)), 0, 270, 90, cor, esp)
+def _cartao(
+    lona: Lona,
+    bloco: Bloco,
+    *,
+    foco: bool = False,
+    confirmado: bool = False,
+    progresso: float = 0.0,
+    mostrar_icone: bool = True,
+    cor_fundo: tuple[int, int, int] | None = None,
+    rotulo_cor: tuple[int, int, int] | None = None,
+    topo: float = TOPO_GRADE,
+    base: float = BASE_GRADE,
+) -> None:
+    x1, y1, x2, y2 = _geometria(bloco, topo=topo, base=base)
+    if cor_fundo is None:
+        cor_fundo = CORES_CARTAO[bloco.id]
 
-
-def _icone_beber(frame, cx, cy, tamanho, cor):
-    esp = max(3, tamanho // 18)
-    topo = int(cy - tamanho * 0.16)
-    base = int(cy + tamanho * 0.34)
-    pontos = [
-        (int(cx - tamanho * 0.24), topo),
-        (int(cx + tamanho * 0.24), topo),
-        (int(cx + tamanho * 0.16), base),
-        (int(cx - tamanho * 0.16), base),
-    ]
-    cv2.polylines(frame, [np.array(pontos, dtype="int32")], True, cor, esp)
-    # Alça
-    cv2.ellipse(frame, (int(cx + tamanho * 0.20), int(cy + tamanho * 0.08)),
-                (int(tamanho * 0.10), int(tamanho * 0.13)), 0, -90, 90, cor, esp)
-    # Canudo
-    cv2.line(frame, (int(cx + tamanho * 0.06), int(cy - tamanho * 0.40)),
-             (int(cx + tamanho * 0.14), int(cy - tamanho * 0.10)), cor, esp)
-    # Líquido
-    cv2.line(frame, (int(cx - tamanho * 0.18), int(cy + tamanho * 0.12)),
-             (int(cx + tamanho * 0.18), int(cy + tamanho * 0.12)), cor, max(2, esp // 2))
-
-
-def _icone_banheiro(frame, cx, cy, tamanho, cor):
-    esp = max(3, tamanho // 18)
-    # Caixa de descarga
-    _retangulo_arredondado(
-        frame, int(cx - tamanho * 0.26), int(cy - tamanho * 0.40),
-        int(cx + tamanho * 0.06), int(cy - tamanho * 0.16), int(tamanho * 0.04), cor, esp,
+    borda = (
+        CORES["borda"]
+        if cor_fundo == CORES["superficie"]
+        else misturar(cor_fundo, CORES["texto"], 0.10)
     )
-    # Vaso
-    cv2.ellipse(frame, (int(cx + tamanho * 0.06), int(cy + tamanho * 0.04)),
-                (int(tamanho * 0.26), int(tamanho * 0.17)), 0, 0, 360, cor, esp)
-    # Base
-    cv2.line(frame, (int(cx - tamanho * 0.02), int(cy + tamanho * 0.18)),
-             (int(cx - tamanho * 0.06), int(cy + tamanho * 0.40)), cor, esp)
-    cv2.line(frame, (int(cx + tamanho * 0.18), int(cy + tamanho * 0.18)),
-             (int(cx + tamanho * 0.16), int(cy + tamanho * 0.40)), cor, esp)
-    cv2.line(frame, (int(cx - tamanho * 0.10), int(cy + tamanho * 0.40)),
-             (int(cx + tamanho * 0.22), int(cy + tamanho * 0.40)), cor, esp)
+    lona.retangulo((x1, y1, x2, y2), cor_fundo, RAIO_CARTAO, borda, 1)
 
-
-_ICONES = {
-    "oi": _icone_oi,
-    "comer": _icone_comer,
-    "beber": _icone_beber,
-    "banheiro": _icone_banheiro,
-}
-
-
-# =====================================================================
-# Componentes da tela
-# =====================================================================
-def _fundo(frame, largura, altura):
-    cv2.rectangle(frame, (0, 0), (largura, altura), _FUNDO, -1)
-
-
-def _barra_progresso(frame, x1, y1, x2, y2, progresso, cor=_DESTAQUE):
-    progresso = min(max(float(progresso), 0.0), 1.0)
-    _retangulo_arredondado(frame, x1, y1, x2, y2, (y2 - y1) // 2, _BARRA_FUNDO, -1)
-    if progresso <= 0:
-        return
-    largura_cheia = int((x2 - x1) * progresso)
-    if largura_cheia > 2:
-        _retangulo_arredondado(
-            frame, x1, y1, x1 + largura_cheia, y2, (y2 - y1) // 2, cor, -1,
+    if mostrar_icone:
+        # Ícone centralizado acima do rótulo.
+        cx = (x1 + x2) / 2
+        tamanho = min(x2 - x1, y2 - y1) * 0.35
+        cy_icone = y1 + (y2 - y1) * 0.38
+        desenhar_pictograma(
+            lona,
+            bloco.icone,
+            cx,
+            cy_icone,
+            tamanho,
+            CORES["texto"],
         )
 
+        # Rótulo abaixo do ícone.
+        cy_rotulo = y1 + (y2 - y1) * 0.72
+        lona.texto(
+            (cx, cy_rotulo),
+            bloco.rotulo,
+            40,
+            rotulo_cor or CORES["texto"],
+            "bold",
+            anchor="mm",
+        )
 
-def _desenhar_cartao(frame, bloco, largura, altura, foco: bool, confirmado: bool,
-                    progresso: float):
-    x1, y1, x2, y2 = board.retangulo(bloco, largura, altura)
-    raio = 22
+    if foco:
+        _anel(lona, (x1, y1, x2, y2), RAIO_CARTAO, CORES["foco"])
+    if confirmado:
+        _anel(lona, (x1, y1, x2, y2), RAIO_CARTAO, CORES["confirmado"])
+        circulo_check(lona, x2 - 32, y1 + 32, 20, CORES["confirmado"], preenchido=True)
+        texto = "Confirmado"
+        largura = lona.largura_texto(texto, 14, "semibold") + 28
+        cx = (x1 + x2) / 2
+        py1, py2 = y2 - 40, y2 - 12
+        lona.retangulo(
+            (cx - largura / 2, py1, cx + largura / 2, py2),
+            CORES["confirmado"],
+            (py2 - py1) / 2,
+        )
+        centro(lona, cx, (py1 + py2) / 2, texto, 14, CORES["branco"], "semibold")
+
+    if foco and not confirmado and progresso > 0:
+        progresso = max(0.0, min(1.0, float(progresso)))
+        px1, py1 = x1 + 36, y2 - 34
+        px2, py2 = px1 + 220, y2 - 24
+        trilho = misturar(cor_fundo, CORES["texto"], 0.14)
+        lona.retangulo((px1, py1, px2, py2), trilho, 5)
+        preenchido = (px2 - px1) * progresso
+        if preenchido > 4:
+            lona.retangulo((px1, py1, px1 + preenchido, py2), CORES["texto"], 5)
+
+
+def _barra(lona: Lona, progresso: float, *, y1: float = 676, y2: float = 686) -> None:
+    progresso = max(0.0, min(1.0, float(progresso)))
+    x1, x2 = MARGEM, LARGURA_BASE - MARGEM
+    lona.retangulo((x1, y1, x2, y2), misturar(CORES["fundo"], CORES["texto"], 0.12), 5)
+    if progresso > 0:
+        lona.retangulo((x1, y1, x1 + (x2 - x1) * progresso, y2), CORES["texto"], 5)
+
+
+# =====================================================================
+# Telas
+# =====================================================================
+def desenhar_prancha(
+    frame,
+    largura: int,
+    altura: int,
+    foco: str | None = None,
+    progresso: float = 0.0,
+    confirmado: str | None = None,
+    perfil: str | None = None,
+) -> None:
+    """Tela da prancha no modo de uso (seleção por olhar)."""
+    lona = Lona(largura, altura)
 
     if confirmado:
-        _retangulo_arredondado(frame, x1 - 8, y1 - 8, x2 + 8, y2 + 8, raio + 8,
-                               _CONFIRMADO, -1)
-    elif foco:
-        _retangulo_arredondado(frame, x1 - 8, y1 - 8, x2 + 8, y2 + 8, raio + 8,
-                               _DESTAQUE, -1)
-
-    _retangulo_arredondado(frame, x1, y1, x2, y2, raio, bloco.cor, -1)
-    _retangulo_arredondado(frame, x1, y1, x2, y2, raio, (15, 15, 15), 4)
-
-    # Pictograma
-    cx = (x1 + x2) // 2
-    cy = y1 + int((y2 - y1) * 0.44)
-    tamanho = int(min(x2 - x1, y2 - y1) * 0.56)
-    _ICONES[bloco.icone](frame, cx, cy, tamanho, _TEXTO_ESCURO)
-
-    # Rótulo
-    escala = 1.25 if len(bloco.rotulo) <= 6 else 1.05
-    _texto_centralizado(frame, bloco.rotulo, cx, y2 - 34, escala, _TEXTO_ESCURO, 3)
-
-    # Progresso do dwell dentro do cartão focado
-    if foco and not confirmado and progresso > 0:
-        _barra_progresso(
-            frame, x1 + 34, y2 - 20, x2 - 34, y2 - 10, progresso, (30, 30, 30),
+        cabecalho(
+            lona,
+            "Prancha",
+            f"Perfil: {perfil or 'padrão'}",
         )
-
-
-def _cabecalho(frame, largura, confirmado_id: str | None, perfil: str | None):
-    _texto_centralizado(frame, "PRANCHA DE COMUNICACAO", largura // 2, 52,
-                        1.05, _TEXTO, 3)
-    if confirmado_id:
-        _texto_centralizado(
-            frame, f"VOCE ESCOLHEU: {board.rotulo(confirmado_id)}", largura // 2,
-            90, 0.9, _CONFIRMADO, 2,
+        lona.retangulo(
+            (MARGEM, 88, LARGURA_BASE - MARGEM, 126),
+            CORES["confirmado_fundo"],
+            12,
+            CORES["confirmado"],
+            1.5,
         )
-    elif perfil:
-        _texto_centralizado(frame, f"Perfil: {perfil}", largura // 2, 90,
-                            0.62, _TEXTO_SUAVE, 1)
+        circulo_check(lona, 84, 107, 11, CORES["confirmado"], preenchido=True)
+        lona.texto(
+            (106, 107),
+            f"Você escolheu: {board.rotulo(confirmado)}",
+            18,
+            CORES["confirmado"],
+            "semibold",
+            anchor="lm",
+        )
     else:
-        _texto_centralizado(frame, "Olhe para um cartao para escolher", largura // 2,
-                            90, 0.62, _TEXTO_SUAVE, 1)
+        instrucao = (
+            f"Olhando para {board.rotulo(foco)}."
+            if foco
+            else "Pronto. Olhe para um cartão."
+        )
+        cabecalho(
+            lona,
+            "Prancha",
+            f"Perfil: {perfil or 'padrão'}",
+            instrucao=instrucao,
+        )
 
-
-def _rodape(frame, largura, altura, texto: str):
-    _texto_centralizado(frame, texto, largura // 2, altura - 16, 0.55,
-                        _TEXTO_SUAVE, 1, cv2.FONT_HERSHEY_SIMPLEX)
-
-
-def desenhar_prancha(frame, largura: int, altura: int, foco: str | None = None,
-                     progresso: float = 0.0, confirmado: str | None = None,
-                     perfil: str | None = None):
-    """Tela da prancha no modo de uso (seleção por olhar)."""
-    _fundo(frame, largura, altura)
-    _cabecalho(frame, largura, confirmado, perfil)
-
-    for bloco in board.BLOCOS:
-        _desenhar_cartao(
-            frame, bloco, largura, altura,
+    for bloco in BLOCOS:
+        _cartao(
+            lona,
+            bloco,
             foco=(bloco.id == foco),
             confirmado=(bloco.id == confirmado),
             progresso=progresso if bloco.id == foco else 0.0,
         )
 
-    _rodape(frame, largura, altura,
-            "[M] Voltar ao menu   |   Olhe fixo para escolher   |   Piscada tambem confirma")
-
-
-def desenhar_calibracao_prancha(frame, largura: int, altura: int, bloco_id: str,
-                                indice: int, total: int, progresso: float = 0.0,
-                                amostras: int = 0, minimo_amostras: int = 0,
-                                descartadas: int = 0, aguardando: bool = False):
-    """Tela de calibração: destaca o bloco alvo e mostra o avanço da coleta."""
-    _fundo(frame, largura, altura)
-
-    _texto_centralizado(frame, "CALIBRACAO DA PRANCHA", largura // 2, 42,
-                        0.95, _TEXTO, 2)
-    alvo = board.rotulo(bloco_id)
-    _texto_centralizado(
-        frame, f"Bloco {indice + 1} de {total}: olhe fixo para o cartao {alvo}",
-        largura // 2, 78, 0.68, _DESTAQUE, 2,
+    if confirmado:
+        esquerda = "A prancha volta ao normal em instantes."
+    elif foco:
+        esquerda = f"Mantenha o olhar em {board.rotulo(foco)}."
+    else:
+        esquerda = "Olhe para um cartão e mantenha o olhar."
+    lona.texto((MARGEM, 700), esquerda, 15, CORES["apoio"], anchor="lm")
+    lona.texto(
+        (LARGURA_BASE - MARGEM, 700),
+        "[M] Voltar ao menu",
+        15,
+        CORES["apoio"],
+        anchor="rm",
     )
-    _barra_progresso(frame, 80, 86, largura - 80, 94, progresso, _CONFIRMADO)
+    aplicar(frame, lona.finalizar())
 
-    for bloco in board.BLOCOS:
-        _desenhar_cartao(
-            frame, bloco, largura, altura,
-            foco=(bloco.id == bloco_id),
-            confirmado=False,
-            progresso=0.0 if aguardando else progresso,
-        )
 
+def desenhar_calibracao_prancha(
+    frame,
+    largura: int,
+    altura: int,
+    bloco_id: str,
+    indice: int,
+    total: int,
+    progresso: float = 0.0,
+    amostras: int = 0,
+    minimo_amostras: int = 0,
+    descartadas: int = 0,
+    aguardando: bool = False,
+) -> None:
+    """Calibração da prancha: destaca o bloco alvo e mostra a coleta."""
+    lona = Lona(largura, altura)
+    cabecalho(
+        lona,
+        f"Bloco {indice + 1} de {total}: olhe para {board.rotulo(bloco_id)}",
+        "Calibração da prancha",
+        direita_texto=f"Cuidador: {amostras} de {minimo_amostras} amostras",
+        direita_tamanho=13,
+    )
+
+    topo, base = 124, 66
+    for bloco in BLOCOS:
+        if bloco.id == bloco_id:
+            _cartao(
+                lona,
+                bloco,
+                foco=True,
+                cor_fundo=CORES_CARTAO[bloco.id],
+                topo=topo,
+                base=base,
+            )
+        else:
+            _cartao(
+                lona,
+                bloco,
+                mostrar_icone=False,
+                cor_fundo=CORES["neutro"],
+                rotulo_cor=CORES["apoio"],
+                topo=topo,
+                base=base,
+            )
+
+    _barra(lona, progresso)
     if aguardando:
-        texto = ("Aperte ESPACO para comecar a coleta   |   [M] Voltar ao menu")
+        texto = "Aperte ESPAÇO para começar a coleta   ·   [M] Voltar ao menu"
     else:
         texto = (
-            f"{amostras}/{minimo_amostras} amostras validas"
-            f"   |   {descartadas} descartadas (piscada/pose)"
-            "   |   [M] Cancelar"
+            f"{amostras}/{minimo_amostras} amostras válidas"
+            f"   ·   {descartadas} descartadas (piscada/pose)"
+            "   ·   [M] Cancelar"
         )
-    _rodape(frame, largura, altura, texto)
+    centro(lona, LARGURA_BASE / 2, 703, texto, 14, CORES["apoio"])
+    aplicar(frame, lona.finalizar())
 
 
-def desenhar_prancha_concluida(frame, largura: int, altura: int, sucesso: bool,
-                               referencias: dict[str, tuple[float, float]],
-                               distancia_minima: float):
+def _chip_status(
+    lona: Lona,
+    x1: float,
+    x2: float,
+    y1: float,
+    y2: float,
+    rotulo: str,
+    detalhe: str,
+    cor: tuple[int, int, int],
+) -> None:
+    lona.retangulo((x1, y1, x2, y2), CORES["superficie"], 16, CORES["borda"], 1)
+    centro(
+        lona, (x1 + x2) / 2, y1 + 24, rotulo, 16, CORES["texto"], "semibold"
+    )
+    centro(lona, (x1 + x2) / 2, y1 + 50, detalhe, 14, cor, "semibold")
+
+
+def desenhar_prancha_concluida(
+    frame,
+    largura: int,
+    altura: int,
+    sucesso: bool,
+    referencias: dict[str, tuple[float, float]],
+    distancia_minima: float,
+) -> None:
     """Tela final da calibração da prancha."""
-    cor_fundo = (22, 62, 26) if sucesso else (68, 24, 24)
-    cv2.rectangle(frame, (0, 0), (largura, altura), cor_fundo, -1)
-
-    titulo = "PRANCHA CALIBRADA!" if sucesso else "CALIBRACAO FRACA"
-    _texto_centralizado(frame, titulo, largura // 2, 80, 1.2, _TEXTO, 3)
+    lona = Lona(largura, altura)
+    cabecalho(lona, "Calibração da prancha", "Modo cuidador")
 
     if sucesso:
-        mensagem = "Os 4 cartoes foram calibrados e o perfil foi salvo."
-        cor_mensagem = _CONFIRMADO
-    else:
-        mensagem = (
-            "Os cartoes ficaram com pontos de olhar muito parecidos. "
-            "Repita olhando bem para cada cartao."
+        circulo_check(lona, LARGURA_BASE / 2, 218, 28, CORES["confirmado"])
+        centro(lona, LARGURA_BASE / 2, 286, "Calibração concluída", 40,
+               CORES["texto"], "bold")
+        centro(
+            lona,
+            LARGURA_BASE / 2,
+            326,
+            "Qualidade boa. A prancha já está pronta.",
+            20,
+            CORES["apoio"],
         )
-        cor_mensagem = (80, 180, 255)
-    _texto_centralizado(frame, mensagem, largura // 2, 130, 0.62, cor_mensagem, 1,
-                        cv2.FONT_HERSHEY_SIMPLEX)
+    else:
+        alerta(lona, LARGURA_BASE / 2, 218, 28, CORES["atencao"])
+        centro(lona, LARGURA_BASE / 2, 286, "Calibração fraca", 40,
+               CORES["texto"], "bold")
+        centro(
+            lona,
+            LARGURA_BASE / 2,
+            326,
+            "Os cartões ficaram muito próximos. Repita olhando bem para cada um.",
+            19,
+            CORES["apoio"],
+        )
 
-    y = 210
-    for bloco in board.BLOCOS:
+    largura_chip, gap = 176, 14
+    inicio = LARGURA_BASE / 2 - (4 * largura_chip + 3 * gap) / 2
+    for indice, bloco in enumerate(BLOCOS):
+        x1 = inicio + indice * (largura_chip + gap)
         ponto = referencias.get(bloco.id)
         if ponto is None:
-            texto = f"{bloco.rotulo}:  (nao coletado)"
+            detalhe, cor = "não coletado", CORES["atencao"]
         else:
-            texto = f"{bloco.rotulo}:  x={ponto[0]:.2f}   y={ponto[1]:.2f}"
-        _texto_centralizado(frame, texto, largura // 2, y, 0.68, _TEXTO, 1,
-                            cv2.FONT_HERSHEY_SIMPLEX)
-        y += 46
+            detalhe = f"x={ponto[0]:.2f}  y={ponto[1]:.2f}"
+            cor = CORES["confirmado"] if sucesso else CORES["atencao"]
+        _chip_status(lona, x1, x1 + largura_chip, 374, 446, bloco.rotulo, detalhe, cor)
 
-    _texto_centralizado(
-        frame, f"Separacao minima entre cartoes: {distancia_minima:.3f}",
-        largura // 2, y + 20, 0.58, _TEXTO_SUAVE, 1, cv2.FONT_HERSHEY_SIMPLEX,
+    centro(
+        lona,
+        LARGURA_BASE / 2,
+        486,
+        f"Separação mínima entre cartões: {distancia_minima:.3f}",
+        15,
+        CORES["apoio"],
     )
-    _texto_centralizado(frame, "Aperte [ENTER] para voltar ao menu",
-                        largura // 2, altura - 60, 0.7, _TEXTO, 1,
-                        cv2.FONT_HERSHEY_SIMPLEX)
+    rodape(lona, "Cuidador: [ENTER] para voltar ao menu", y=572)
+    aplicar(frame, lona.finalizar())

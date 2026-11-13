@@ -1,7 +1,7 @@
 """Testes do carregamento/validação de configuração."""
 import pytest
 
-from config.loader import _config_padrao, carregar_config
+from config.loader import _config_padrao, carregar_config, salvar_config
 
 
 def escrever_yaml(tmp_path, conteudo: str):
@@ -20,6 +20,7 @@ class TestMergeComPadroes:
         assert cfg["deteccao"]["alpha_ema"] == 0.5
         assert cfg["deteccao"]["dwell_ms"] == 700
         assert cfg["deteccao"]["piscada"]["limiar_ear"] == 0.15
+        assert cfg["deteccao"]["divergencia_max"] == 0.25
         assert cfg["camera"]["largura"] == 1280
 
     def test_yaml_aninhado_parcial_preserva_o_resto(self, tmp_path):
@@ -49,6 +50,42 @@ class TestFallback:
         caminho = escrever_yaml(tmp_path, "camera:\n  largura: 'muito grande'\n")
         assert carregar_config(caminho) == _config_padrao()
 
+    def test_tema_invalido_usa_padroes(self, tmp_path):
+        caminho = escrever_yaml(tmp_path, "aparencia:\n  tema: azul\n")
+        assert carregar_config(caminho) == _config_padrao()
+
+    @pytest.mark.parametrize("valor", [0, -0.1, 1.5])
+    def test_divergencia_fora_da_faixa_usa_padroes(self, tmp_path, valor):
+        caminho = escrever_yaml(tmp_path, f"deteccao:\n  divergencia_max: {valor}\n")
+        assert carregar_config(caminho) == _config_padrao()
+
+    def test_divergencia_personalizada_e_aceita(self, tmp_path):
+        caminho = escrever_yaml(tmp_path, "deteccao:\n  divergencia_max: 0.4\n")
+        cfg = carregar_config(caminho)
+        assert cfg["deteccao"]["divergencia_max"] == 0.4
+
+    def test_distancia_padrao(self, tmp_path):
+        cfg = carregar_config(tmp_path / "nao_existe.yaml")
+        assert cfg["deteccao"]["distancia_habilitada"] is True
+        assert cfg["deteccao"]["distancia_longe_abaixo"] == 0.11
+        assert cfg["deteccao"]["distancia_perto_acima"] == 0.34
+
+    def test_distancia_personalizada_e_aceita(self, tmp_path):
+        caminho = escrever_yaml(
+            tmp_path,
+            "deteccao:\n  distancia_longe_abaixo: 0.08\n  distancia_perto_acima: 0.40\n",
+        )
+        cfg = carregar_config(caminho)
+        assert cfg["deteccao"]["distancia_longe_abaixo"] == 0.08
+        assert cfg["deteccao"]["distancia_perto_acima"] == 0.40
+
+    def test_distancia_com_limites_invertidos_usa_padroes(self, tmp_path):
+        caminho = escrever_yaml(
+            tmp_path,
+            "deteccao:\n  distancia_longe_abaixo: 0.5\n  distancia_perto_acima: 0.2\n",
+        )
+        assert carregar_config(caminho) == _config_padrao()
+
     @pytest.mark.parametrize(
         "conteudo",
         [
@@ -60,3 +97,34 @@ class TestFallback:
     def test_estrutura_invalida_usa_padroes(self, tmp_path, conteudo):
         caminho = escrever_yaml(tmp_path, conteudo)
         assert carregar_config(caminho) == _config_padrao()
+
+
+class TestSalvar:
+    def test_ida_e_volta_preserva_valores(self, tmp_path):
+        cfg = _config_padrao()
+        cfg["deteccao"]["dwell_ms"] = 900
+        cfg["deteccao"]["piscada"]["habilitada"] = False
+        cfg["camera"]["fps"] = 60
+        cfg["janela"]["resolucao"] = "1280x720"
+
+        caminho = salvar_config(cfg, tmp_path / "settings.yaml")
+
+        assert caminho.exists()
+        assert carregar_config(caminho) == cfg
+
+    def test_resolucao_invalida_e_rejeitada(self, tmp_path):
+        cfg = _config_padrao()
+        cfg["janela"]["resolucao"] = "800x600"
+        with pytest.raises(ValueError):
+            salvar_config(cfg, tmp_path / "settings.yaml")
+
+    def test_arquivo_nao_fica_parcial_em_caso_de_erro(self, tmp_path):
+        destino = tmp_path / "settings.yaml"
+        destino.write_text("configuracao antiga", encoding="utf-8")
+        cfg = _config_padrao()
+        cfg["janela"]["resolucao"] = "invalida"
+
+        with pytest.raises(ValueError):
+            salvar_config(cfg, destino)
+
+        assert destino.read_text(encoding="utf-8") == "configuracao antiga"

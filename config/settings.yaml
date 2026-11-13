@@ -10,6 +10,22 @@ deteccao:
   alpha_ema: 0.35          # 0=muito suave/lento, 1=sem suavização
   tamanho_historico_grafico: 200
   limite_frames_sem_rosto: 60 # ~2s a 30fps antes de avisar "reposicione o rosto"
+  # Diferença máxima aceitável entre os ratios dos dois olhos. Acima
+  # disso o quadro é tratado como inválido (piscada, oclusão, ruído) e
+  # não conta para seleção nem para calibração. Aumente para quem tem
+  # estrabismo ou olhos que divergem de forma consistente.
+  divergencia_max: 0.25
+
+  # Indicador informativo de distância do rosto até a câmera. Não
+  # bloqueia seleção nem calibração: serve para avisar quando o rosto
+  # está muito longe ou muito perto. A medida é a distância entre os
+  # cantos externos dos olhos, em fração da largura da imagem.
+  # Câmeras com campo de visão muito diferente podem precisar de ajuste.
+  distancia_habilitada: true
+  distancia_longe_abaixo: 0.11 # abaixo disso: rosto longe
+  distancia_perto_acima: 0.34  # acima disso: rosto perto demais
+  distancia_entrada_ms: 800    # tempo contínuo fora da faixa para avisar
+  distancia_saida_ms: 600      # tempo contínuo na faixa para o aviso sumir
 
   # Confirmação por piscada (alternativa ao dwell time)
   piscada:
@@ -61,6 +77,14 @@ logs:
 feedback:
   som: true # bipe curto ao confirmar a seleção
 
+aparencia:
+  # Tema visual do aplicativo: "claro" ou "escuro".
+  tema: "claro"
+
 janela:
   titulo: "Eye-Tracking Assistivo V2.1 (MediaPipe)"
   fullscreen: true
+  # Resolução desejada para a janela do aplicativo (16:9):
+  # 1280x720 ou 1920x1080. Se não couber na tela, o app reduz
+  # proporcionalmente e centraliza.
+  resolucao: "1920x1080"

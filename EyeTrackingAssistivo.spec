@@ -28,6 +28,7 @@ mp_hiddenimports = [m for m in mp_hiddenimports if ".test" not in m]
 datas = mp_datas + [
     (str(raiz / "config" / "settings.yaml"), "config"),
     (str(raiz / "models" / "face_landmarker.task"), "models"),
+    (str(raiz / "ui" / "assets"), "ui/assets"),
 ]
 
 a = Analysis(

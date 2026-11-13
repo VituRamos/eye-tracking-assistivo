@@ -1,0 +1,3 @@
+# Dependências extras do preview/sandbox visual.
+# A Pillow também é usada pelo aplicativo de produção (ui/design.py).
+Pillow>=10.1,<14

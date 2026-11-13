@@ -14,11 +14,19 @@ import numpy as np
 import pytest
 
 from core.gaze_engine import (
+    DISTANCIA_BOA,
+    DISTANCIA_INDEFINIDA,
+    DISTANCIA_LONGE,
+    DISTANCIA_PERTO,
     SuavizadorEMA,
     calcular_ear,
     calcular_ratio_iris_x,
+    classificar_distancia,
     classificar_lado,
     compensar_ratio_por_yaw,
+    distancia_rosto_normalizada,
+    divergencia_dentro_do_limite,
+    divergencia_entre_olhos,
     extrair_yaw_da_matriz,
     olho_fechado,
 )
@@ -151,3 +159,97 @@ class TestCompensacaoPose:
     def test_compensar_ratio_com_yaw_positivo_desloca_valor(self):
         ratio_ajustado = compensar_ratio_por_yaw(0.5, yaw_graus=20.0, sensibilidade=0.004)
         assert ratio_ajustado < 0.5
+
+
+# =====================================================================
+# Divergência entre os olhos -- confiança do quadro
+# =====================================================================
+class TestDivergenciaEntreOlhos:
+    @pytest.mark.parametrize(
+        ("esq", "dir", "esperado"),
+        [
+            (0.5, 0.5, 0.0),
+            (0.4, 0.6, 0.2),
+            (0.7, 0.3, 0.4),
+            (0.0, 1.0, 1.0),
+        ],
+    )
+    def test_diferenca_absoluta(self, esq, dir, esperado):
+        assert divergencia_entre_olhos(esq, dir) == pytest.approx(esperado)
+
+    def test_dentro_do_limite_aceita_olhos_proximos(self):
+        assert divergencia_dentro_do_limite(0.48, 0.52, limite=0.25) is True
+
+    def test_acima_do_limite_rejeita_quadro(self):
+        assert divergencia_dentro_do_limite(0.2, 0.8, limite=0.25) is False
+
+    def test_limite_maior_aceita_estrabismo_consistente(self):
+        assert divergencia_dentro_do_limite(0.2, 0.8, limite=0.7) is True
+
+    def test_limite_invalido_levanta_erro(self):
+        with pytest.raises(ValueError):
+            divergencia_dentro_do_limite(0.5, 0.5, limite=0.0)
+        with pytest.raises(ValueError):
+            divergencia_dentro_do_limite(0.5, 0.5, limite=-0.1)
+
+
+# =====================================================================
+# Distância do rosto até a câmera (indicador informativo)
+# =====================================================================
+def montar_landmarks_olhos(x_dir=0.35, x_esq=0.55, y=0.5):
+    """Landmarks mínimos com os cantos externos dos dois olhos."""
+    return {
+        33: FakeLandmark(x_dir, y),
+        263: FakeLandmark(x_esq, y),
+    }
+
+
+class TestDistanciaRosto:
+    def test_medida_e_a_distancia_entre_os_cantos_externos(self):
+        landmarks = montar_landmarks_olhos(x_dir=0.30, x_esq=0.50)
+        medida = distancia_rosto_normalizada(landmarks, 1280, 720)
+        assert medida == pytest.approx(0.20)
+
+    def test_rosto_mais_longe_tem_medida_menor(self):
+        perto = distancia_rosto_normalizada(
+            montar_landmarks_olhos(x_dir=0.20, x_esq=0.60), 1280, 720
+        )
+        longe = distancia_rosto_normalizada(
+            montar_landmarks_olhos(x_dir=0.35, x_esq=0.55), 1280, 720
+        )
+        assert longe < perto
+
+    def test_yaw_encurta_e_a_compensacao_recupera(self):
+        landmarks = montar_landmarks_olhos(x_dir=0.30, x_esq=0.50)
+        sem_yaw = distancia_rosto_normalizada(landmarks, 1280, 720, 0.0)
+        cabeça_virada = dict(landmarks)
+        # Simula o encurtamento horizontal causado por 30 graus de yaw.
+        cabeça_virada[263] = FakeLandmark(0.30 + 0.20 * np.cos(np.radians(30)), 0.5)
+        com_yaw = distancia_rosto_normalizada(cabeça_virada, 1280, 720, 30.0)
+        assert com_yaw == pytest.approx(sem_yaw, rel=1e-6)
+
+    def test_yaw_extremo_nao_divide_por_zero(self):
+        landmarks = montar_landmarks_olhos(x_dir=0.49, x_esq=0.51)
+        medida = distancia_rosto_normalizada(landmarks, 1280, 720, 89.0)
+        assert medida > 0
+
+
+class TestClassificarDistancia:
+    @pytest.mark.parametrize(
+        ("medida", "esperado"),
+        [
+            (0.05, DISTANCIA_LONGE),
+            (0.10, DISTANCIA_LONGE),
+            (0.11, DISTANCIA_BOA),
+            (0.20, DISTANCIA_BOA),
+            (0.34, DISTANCIA_BOA),
+            (0.35, DISTANCIA_PERTO),
+            (0.60, DISTANCIA_PERTO),
+        ],
+    )
+    def test_faixas(self, medida, esperado):
+        assert classificar_distancia(medida, 0.11, 0.34) == esperado
+
+    def test_limites_invertidos_ficam_indefinidos(self):
+        assert classificar_distancia(0.2, 0.40, 0.30) == DISTANCIA_INDEFINIDA
+        assert classificar_distancia(0.2, 0.0, 0.30) == DISTANCIA_INDEFINIDA

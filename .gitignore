@@ -14,6 +14,7 @@ env/
 # Build / distribuicao
 build/
 dist/
+entrega/
 *.spec.bak
 diagnostico.txt
 diagnostico_camera.txt
@@ -24,6 +25,9 @@ perfis/*.json
 !perfis/.gitkeep
 models/*.task
 !models/.gitkeep
+
+# Sidecar empacotado pelo PyInstaller (gerado por npm run sidecar)
+prototipo_tauri/src-tauri/resources/eye-core/
 
 # Sistema
 .DS_Store

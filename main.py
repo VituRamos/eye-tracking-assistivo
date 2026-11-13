@@ -15,8 +15,9 @@ cada um deles:
   core/board_calibration.py -> persistência da calibração da prancha
   core/selection.py       -> decisão de seleção (dwell + piscada)
   core/calibration.py     -> persistência de calibração SIM/NÃO
-  ui/renderer_cv2.py      -> menu, perfis e modo SIM/NÃO (OpenCV)
-  ui/board_renderer.py    -> prancha de comunicação (OpenCV)
+  ui/design.py            -> tokens visuais, Lona Pillow, SVG e componentes
+  ui/renderer_cv2.py      -> menu, perfis, SIM/NÃO e telas auxiliares
+  ui/board_renderer.py    -> prancha de comunicação e calibração
 
 Rode com: python main.py
 Diagnóstico sem câmera: python main.py --check
@@ -57,9 +58,19 @@ from core.state_machine import AppState, EstadoApp
 from ui import board_renderer as ui_prancha
 from ui import renderer_cv2 as ui
 
-VERSAO = "2.1"
+VERSAO = "2.2.4"
+
+# Captura e detecção continuam em 1280x720 (custo baixo no MediaPipe).
+# A interface é desenhada nativamente em 1920x1080 e só então exibida.
 LARGURA_PROJETO = 1280
 ALTURA_PROJETO = 720
+LARGURA_TELA = 1920
+ALTURA_TELA = 1080
+
+# Códigos de teclas especiais no formato devolvido pelo OpenCV no Windows
+# (VK << 16). As letras G/O funcionam como alternativa em qualquer backend.
+TECLA_F2 = 0x71 << 16
+TECLA_F3 = 0x72 << 16
 
 logger = logging.getLogger("eyetracking")
 
@@ -301,6 +312,9 @@ def main(argv: list[str] | None = None) -> int:
     historico_esq: deque[float] = deque(maxlen=det_cfg["tamanho_historico_grafico"])
     historico_dir: deque[float] = deque(maxlen=det_cfg["tamanho_historico_grafico"])
     largura_grafico, altura_grafico = 280, 160
+    # O gráfico é desenhado em pixels reais; acompanha a tela nativa.
+    largura_grafico = round(largura_grafico * LARGURA_TELA / LARGURA_PROJETO)
+    altura_grafico = round(altura_grafico * ALTURA_TELA / ALTURA_PROJETO)
 
     # -----------------------------------------------------------------
     def camera_pronta() -> bool:
@@ -429,25 +443,31 @@ def main(argv: list[str] | None = None) -> int:
 
     logger_raiz.info("Aplicação iniciada. Estado inicial: %s", app.estado)
 
-    largura, altura = LARGURA_PROJETO, ALTURA_PROJETO
+    largura_proc, altura_proc = LARGURA_PROJETO, ALTURA_PROJETO
+    largura, altura = LARGURA_TELA, ALTURA_TELA
+    escala_tela = largura / LARGURA_PROJETO
     metade_x = largura // 2
-    pos_x = largura - largura_grafico - 20
-    pos_y = altura - altura_grafico - 20
+    pos_x = largura - largura_grafico - round(20 * escala_tela)
+    pos_y = altura - altura_grafico - round(40 * escala_tela)
     timestamp_ms = 0
     ultimo_aviso_camera = time.monotonic()
+
+    # Canvas nativo da interface. As telas sempre pintam o quadro inteiro;
+    # ele é reaproveitado para não alocar 6 MB a cada iteração.
+    frame = np.zeros((altura, largura, 3), dtype=np.uint8)
 
     try:
         while True:
             agora = time.monotonic()
 
             try:
-                frame = camera.ler(timeout=0.2)
+                quadro = camera.ler(timeout=0.2)
             except queue.Empty:
-                frame = None
+                quadro = None
 
-            frame_recebido = frame is not None
+            frame_recebido = quadro is not None
             if not frame_recebido:
-                frame = np.zeros((altura, largura, 3), dtype=np.uint8)
+                frame_proc = np.zeros((altura_proc, largura_proc, 3), dtype=np.uint8)
                 # Log a cada 10s, não a cada iteração (evita poluir o log).
                 if agora - ultimo_aviso_camera >= 10.0:
                     ultimo_aviso_camera = agora
@@ -456,10 +476,9 @@ def main(argv: list[str] | None = None) -> int:
                     )
             else:
                 ultimo_aviso_camera = agora
-                frame = ui.preparar_frame(cv2.flip(frame, 1), largura, altura)
-
-            overlay = frame.copy()
-            cor_sim, cor_nao = (0, 60, 0), (0, 0, 60)
+                frame_proc = ui.preparar_frame(
+                    cv2.flip(quadro, 1), largura_proc, altura_proc
+                )
 
             ratio_esq, ratio_dir = 0.5, 0.5
             ratio_valido = (ratio_esq + ratio_dir) / 2
@@ -468,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
             rosto_detectado = False
             pose_confiavel = True
             olhos_fechados = False
+            avisar_sem_rosto = False
 
             rodar_deteccao = app.estado in (
                 EstadoApp.CALIB_COLETANDO,
@@ -480,7 +500,7 @@ def main(argv: list[str] | None = None) -> int:
             # Detecção e cálculo de gaze
             # ---------------------------------------------------------
             if rodar_deteccao:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                rgb = cv2.cvtColor(frame_proc, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 # Contador monotônico: time.time() no Windows tem granularidade
                 # de ~15ms e pode repetir o mesmo milissegundo em dois frames,
@@ -494,9 +514,11 @@ def main(argv: list[str] | None = None) -> int:
                     landmarks = resultado.face_landmarks[0]
 
                     ratio_esq_bruto = ge.calcular_ratio_iris_x(
-                        landmarks, ge.OLHO_ESQUERDO_CANTOS, ge.IRIS_ESQUERDA, largura, altura)
+                        landmarks, ge.OLHO_ESQUERDO_CANTOS, ge.IRIS_ESQUERDA,
+                        largura_proc, altura_proc)
                     ratio_dir_bruto = ge.calcular_ratio_iris_x(
-                        landmarks, ge.OLHO_DIREITO_CANTOS, ge.IRIS_DIREITA, largura, altura)
+                        landmarks, ge.OLHO_DIREITO_CANTOS, ge.IRIS_DIREITA,
+                        largura_proc, altura_proc)
 
                     # Compensação de pose de cabeça, se a matriz vier disponível
                     if resultado.facial_transformation_matrixes:
@@ -512,19 +534,21 @@ def main(argv: list[str] | None = None) -> int:
                     ratio_y_bruto = (
                         ge.calcular_ratio_iris_y(
                             landmarks, ge.OLHO_ESQUERDO_VERTICAL, ge.IRIS_ESQUERDA,
-                            largura, altura)
+                            largura_proc, altura_proc)
                         + ge.calcular_ratio_iris_y(
                             landmarks, ge.OLHO_DIREITO_VERTICAL, ge.IRIS_DIREITA,
-                            largura, altura)
+                            largura_proc, altura_proc)
                     ) / 2
                     ratio_y_valido = suavizador_y.atualizar(ratio_y_bruto)
 
                     # EAR: usado para piscada E para descartar amostras de
                     # calibração com os olhos fechados (íris instável).
                     ear_esq = ge.calcular_ear(
-                        landmarks, ge.OLHO_ESQUERDO_VERTICAL, ge.OLHO_ESQUERDO_CANTOS, largura, altura)
+                        landmarks, ge.OLHO_ESQUERDO_VERTICAL, ge.OLHO_ESQUERDO_CANTOS,
+                        largura_proc, altura_proc)
                     ear_dir = ge.calcular_ear(
-                        landmarks, ge.OLHO_DIREITO_VERTICAL, ge.OLHO_DIREITO_CANTOS, largura, altura)
+                        landmarks, ge.OLHO_DIREITO_VERTICAL, ge.OLHO_DIREITO_CANTOS,
+                        largura_proc, altura_proc)
                     ear_medio = (ear_esq + ear_dir) / 2
                     olhos_fechados = ge.olho_fechado(ear_medio, piscada_cfg["limiar_ear"])
 
@@ -552,16 +576,13 @@ def main(argv: list[str] | None = None) -> int:
                         else:
                             app.amostras_ignoradas += 1
 
-                    roi_esq = ui.extrair_roi_do_olho(
-                        frame, landmarks, ge.OLHO_ESQUERDO_CANTOS, ge.IRIS_ESQUERDA, largura, altura)
-                    roi_dir = ui.extrair_roi_do_olho(
-                        frame, landmarks, ge.OLHO_DIREITO_CANTOS, ge.IRIS_DIREITA, largura, altura)
-                    ui.desenhar_recortes_debug(frame, roi_esq, roi_dir)
-
                 if not rosto_detectado:
                     app.contador_sem_rosto += 1
-                    if app.contador_sem_rosto > det_cfg["limite_frames_sem_rosto"]:
-                        ui.desenhar_aviso_sem_rosto(frame, largura, altura)
+                    if (
+                        frame_recebido
+                        and app.contador_sem_rosto > det_cfg["limite_frames_sem_rosto"]
+                    ):
+                        avisar_sem_rosto = True
 
             # ---------------------------------------------------------
             # Decisão de seleção (sempre atualizada no modo ativo, mesmo
@@ -612,17 +633,52 @@ def main(argv: list[str] | None = None) -> int:
                     app.perfil_ativo, diferenca_minima,
                     prancha_valida=app.prancha_valida(distancia_minima_prancha),
                     prancha_fraca=app.prancha_fraca,
+                    camera_ok=camera_pronta(),
                 )
-                if tecla == ord('p'):
+                if tecla in (ord('p'), ord('P')):
                     app.transicionar(EstadoApp.SELECIONAR_PERFIL)
-                elif tecla == ord('c'):
+                elif tecla in (ord('c'), ord('C')):
                     iniciar_calibracao_prancha(agora)
-                elif tecla == ord('i'):
+                elif tecla in (ord('i'), ord('I')):
                     entrar_na_prancha(agora)
-                elif tecla == ord('s'):
+                elif tecla in (ord('s'), ord('S')):
                     entrar_no_modo_ativo(agora)
-                elif tecla == ord('v'):
+                elif tecla in (ord('v'), ord('V')):
                     iniciar_calibracao(agora)
+                elif tecla in (TECLA_F2, ord('g'), ord('G')):
+                    app.transicionar(EstadoApp.MODO_CUIDADOR)
+                elif tecla in (TECLA_F3, ord('o'), ord('O')):
+                    app.transicionar(EstadoApp.CONFIGURACOES)
+
+            # =========================================================
+            elif app.estado == EstadoApp.MODO_CUIDADOR:
+                ui.desenhar_modo_cuidador(
+                    frame, largura, altura,
+                    perfil=app.perfil_ativo,
+                    prancha_valida=app.prancha_valida(distancia_minima_prancha),
+                    prancha_fraca=app.prancha_fraca,
+                    calibracao_valida=app.calibracao_valida(diferenca_minima),
+                    camera_ok=camera_pronta(),
+                    versao=VERSAO,
+                )
+                if tecla in (27, TECLA_F2, ord('m'), ord('M')):
+                    app.transicionar(EstadoApp.MENU)
+                elif tecla in (ord('p'), ord('P')):
+                    app.transicionar(EstadoApp.SELECIONAR_PERFIL)
+                elif tecla in (ord('c'), ord('C')):
+                    iniciar_calibracao_prancha(agora)
+                elif tecla in (ord('v'), ord('V')):
+                    iniciar_calibracao(agora)
+                elif tecla in (TECLA_F3, ord('o'), ord('O')):
+                    app.transicionar(EstadoApp.CONFIGURACOES)
+
+            # =========================================================
+            elif app.estado == EstadoApp.CONFIGURACOES:
+                ui.desenhar_configuracoes(
+                    frame, largura, altura, cfg, app.perfil_ativo, VERSAO,
+                )
+                if tecla in (27, TECLA_F3, ord('m'), ord('M')):
+                    app.transicionar(EstadoApp.MENU)
 
             # =========================================================
             elif app.estado == EstadoApp.SELECIONAR_PERFIL:
@@ -744,9 +800,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
                 if rosto_detectado and not pose_confiavel:
-                    cv2.putText(frame, "Cabeca muito virada -- olhe para a tela",
-                                (largura // 2 - 250, 200),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 255), 2)
+                    ui.desenhar_aviso_cabeca(frame, largura, altura, deslocado=True)
 
                 if (
                     app.tempo_inicio_coleta_prancha
@@ -843,15 +897,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
                     if rosto_detectado and not pose_confiavel:
-                        cv2.putText(frame, "Cabeca muito virada -- olhe para a tela",
-                                    (largura // 2 - 250, 200),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 255), 2)
+                        ui.desenhar_aviso_cabeca(frame, largura, altura, deslocado=True)
 
                     texto_debug = (
                         f"x:{ratio_valido:.2f} y:{ratio_y_valido:.2f}"
                     )
-                    cv2.putText(frame, texto_debug, (12, altura - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (120, 120, 120), 1)
+                    ui.desenhar_debug_gaze(frame, largura, altura, texto_debug)
 
                     if tecla == ord('m'):
                         controlador.reset()
@@ -861,21 +912,21 @@ def main(argv: list[str] | None = None) -> int:
             # =========================================================
             elif app.estado == EstadoApp.CALIB_PREPARAR:
                 alvo = "SIM" if app.calib_fase == "ESQUERDA" else "NAO"
-                cor_alvo = (0, 255, 0) if app.calib_fase == "ESQUERDA" else (0, 0, 255)
-                cor_sim_c = (0, 150, 0) if app.calib_fase == "ESQUERDA" else (0, 60, 0)
-                cor_nao_c = (0, 0, 150) if app.calib_fase == "DIREITA" else (0, 0, 60)
-                ui.desenhar_painel_sim_nao(frame, overlay, largura, altura, metade_x, cor_sim_c, cor_nao_c, 0.35)
-                cv2.putText(frame, "FASE DE CALIBRACAO", (metade_x - 160, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                cv2.putText(frame, f"Posicione o olhar fixo para o '{alvo}'", (largura // 2 - 240, 110),
-                            cv2.FONT_HERSHEY_DUPLEX, 1, cor_alvo, 2)
-                cv2.putText(frame, "Olhe para o lado do painel ate a barra completar", (largura // 2 - 330, 150),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (210, 210, 210), 1)
-                cv2.putText(frame, "Aperte ESPACO para comecar a coleta", (largura // 2 - 240, altura - 80),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
-                cv2.putText(frame, f"[M] Voltar ao menu   |   Perfil: {app.perfil_ativo or 'padrao'}",
-                            (largura // 2 - 260, altura - 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
+                ui.desenhar_calibracao_sim_nao(
+                    frame, largura, altura,
+                    alvo=alvo,
+                    coletando=False,
+                    progresso=0.0,
+                    amostras=0,
+                    minimo=calib_cfg["min_amostras"],
+                    descartadas=0,
+                    media_esq=app.media_esquerda_calibrada,
+                    media_dir=app.media_direita_calibrada,
+                    historico_esq=historico_esq,
+                    historico_dir=historico_dir,
+                    tamanho_historico=det_cfg["tamanho_historico_grafico"],
+                    perfil=app.perfil_ativo,
+                )
 
                 if tecla == 32:
                     app.transicionar(EstadoApp.CALIB_COLETANDO)
@@ -890,15 +941,6 @@ def main(argv: list[str] | None = None) -> int:
             # =========================================================
             elif app.estado == EstadoApp.CALIB_COLETANDO:
                 alvo = "SIM" if app.calib_fase == "ESQUERDA" else "NAO"
-                cor_sim_c = (0, 200, 0) if app.calib_fase == "ESQUERDA" else (0, 60, 0)
-                cor_nao_c = (0, 0, 200) if app.calib_fase == "DIREITA" else (0, 0, 60)
-                ui.desenhar_painel_sim_nao(frame, overlay, largura, altura, metade_x, cor_sim_c, cor_nao_c, 0.35)
-                cv2.putText(frame, "FASE DE CALIBRACAO", (largura // 2 - 180, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                cv2.putText(frame, f"OLHE FIXO PARA O '{alvo}'", (50, 95),
-                            cv2.FONT_HERSHEY_DUPLEX, 1, (255, 255, 255), 2)
-                cv2.putText(frame, "[M] Cancelar calibracao", (largura - 260, altura - 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (150, 150, 150), 1)
 
                 decorrido = (
                     max(0.0, agora - app.tempo_inicio_coleta)
@@ -910,25 +952,25 @@ def main(argv: list[str] | None = None) -> int:
                     len(app.coletas_calibracao) / calib_cfg["min_amostras"], 1.0
                 )
                 progresso = min(progresso_tempo, progresso_amostras)
-                x_barra = 50 if app.calib_fase == "ESQUERDA" else metade_x + 50
-                cv2.rectangle(frame, (x_barra, 130), (x_barra + int(progresso * (metade_x - 100)), 145),
-                              (0, 255, 0), -1)
-                cv2.putText(
-                    frame,
-                    f"{len(app.coletas_calibracao)}/{calib_cfg['min_amostras']} amostras validas"
-                    f"  |  {app.amostras_ignoradas} descartadas (piscada/pose)",
-                    (50, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1,
+
+                ui.desenhar_calibracao_sim_nao(
+                    frame, largura, altura,
+                    alvo=alvo,
+                    coletando=True,
+                    progresso=progresso,
+                    amostras=len(app.coletas_calibracao),
+                    minimo=calib_cfg["min_amostras"],
+                    descartadas=app.amostras_ignoradas,
+                    media_esq=app.media_esquerda_calibrada,
+                    media_dir=app.media_direita_calibrada,
+                    historico_esq=historico_esq,
+                    historico_dir=historico_dir,
+                    tamanho_historico=det_cfg["tamanho_historico_grafico"],
+                    perfil=app.perfil_ativo,
                 )
 
                 if rosto_detectado and not pose_confiavel:
-                    cv2.putText(frame, "Cabeca muito virada -- olhe para a tela",
-                                (largura // 2 - 250, 205),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 255), 2)
-
-                ui.desenhar_grafico_temporal(frame, historico_esq, historico_dir,
-                                             app.media_esquerda_calibrada, app.media_direita_calibrada,
-                                             largura_grafico, altura_grafico, pos_x, pos_y,
-                                             det_cfg["tamanho_historico_grafico"])
+                    ui.desenhar_aviso_cabeca(frame, largura, altura, deslocado=True)
 
                 if (
                     app.tempo_inicio_coleta
@@ -1010,26 +1052,20 @@ def main(argv: list[str] | None = None) -> int:
                     app.avisar("Calibracao invalida. Pressione [C].", agora)
                     app.transicionar(EstadoApp.MENU)
                 else:
-                    if lado_detectado == "Esquerda":
-                        cor_sim = (0, 180, 0)
-                    elif lado_detectado == "Direita":
-                        cor_nao = (0, 0, 220)
-                    ui.desenhar_painel_sim_nao(frame, overlay, largura, altura, metade_x, cor_sim, cor_nao, 0.25)
-                    cv2.putText(frame, "[M] Voltar ao menu", (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+                    ui.desenhar_painel_sim_nao(
+                        frame, largura, altura, metade_x,
+                        ativo_sim=(lado_detectado != "Direita"),
+                    )
 
                     texto_debug = (
                         f"esq:{ratio_esq:.2f} dir:{ratio_dir:.2f} | "
                         f"calib SIM:{app.media_esquerda_calibrada:.2f} "
                         f"NAO:{app.media_direita_calibrada:.2f}"
                     )
-                    cv2.putText(frame, texto_debug, (10, altura - 50),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                    ui.desenhar_debug_gaze(frame, largura, altura, texto_debug)
 
                     if rosto_detectado and not pose_confiavel:
-                        cv2.putText(frame, "Cabeca muito virada -- olhe para a tela",
-                                    (largura // 2 - 250, 150),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 255), 2)
+                        ui.desenhar_aviso_cabeca(frame, largura, altura)
 
                     ui.desenhar_grafico_temporal(frame, historico_esq, historico_dir,
                                                  app.media_esquerda_calibrada, app.media_direita_calibrada,
@@ -1039,13 +1075,10 @@ def main(argv: list[str] | None = None) -> int:
                     if app.opcao_confirmada is not None:
                         ui.desenhar_selecionado(frame, largura, altura, app.opcao_confirmada)
                     elif decisao.opcao_focada:
-                        progresso = int(decisao.progresso * metade_x)
-                        y_barra = altura - 30
-                        if decisao.opcao_focada == "SIM":
-                            cv2.rectangle(frame, (0, y_barra), (progresso, y_barra + 15), (0, 255, 0), -1)
-                        else:
-                            cv2.rectangle(frame, (largura - progresso, y_barra),
-                                          (largura, y_barra + 15), (0, 0, 255), -1)
+                        ui.desenhar_progresso_sim_nao(
+                            frame, largura, altura, decisao.opcao_focada,
+                            decisao.progresso,
+                        )
 
                     if tecla == ord('m'):
                         controlador.reset()
@@ -1061,6 +1094,8 @@ def main(argv: list[str] | None = None) -> int:
                     frame, largura, altura, camera.segundos_sem_frame(),
                     "" if backend_atual == "nenhum" else backend_atual,
                 )
+            elif avisar_sem_rosto:
+                ui.desenhar_aviso_sem_rosto(frame, largura, altura)
             if app.aviso_ativo(agora):
                 ui.desenhar_aviso(frame, largura, altura, app.aviso)
 

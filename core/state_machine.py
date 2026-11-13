@@ -19,6 +19,7 @@ from core.board import IDS_BLOCOS, distancia_minima_entre_pontos
 
 class EstadoApp(Enum):
     MENU = auto()
+    ESCOLHER_CALIBRACAO = auto()
     SELECIONAR_PERFIL = auto()
     NOVO_PERFIL = auto()
     CALIB_PREPARAR = auto()
@@ -30,6 +31,9 @@ class EstadoApp(Enum):
     PRANCHA_CALIB_COLETANDO = auto()
     PRANCHA_CALIB_CONCLUIDA = auto()
     PRANCHA_ATIVO = auto()
+    # Telas auxiliares do novo design (apenas apresentação)
+    MODO_CUIDADOR = auto()
+    CONFIGURACOES = auto()
 
 
 @dataclass

@@ -1,0 +1,17 @@
+{
+  "identifier": "default",
+  "description": "Permissões da janela principal da Prancha Assistiva",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-close",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-set-size",
+    "core:window:allow-center",
+    "core:window:allow-is-maximized",
+    "core:window:allow-unmaximize"
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Prancha Assistiva",
+  "version": "2.2.4",
+  "identifier": "com.eyetracking.prancha",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Prancha Assistiva",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 960,
+        "minHeight": 540,
+        "maximized": false,
+        "resizable": true,
+        "fullscreen": true,
+        "center": true,
+        "backgroundColor": "#F4F1EA"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Eye-Tracking Assistivo",
+    "copyright": "Eye-Tracking Assistivo",
+    "shortDescription": "Comunicação assistiva pelo olhar",
+    "longDescription": "Prancha de comunicação assistiva com rastreamento ocular local, calibração por perfil e modo cuidador. Funciona offline.",
+    "category": "Education",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "resources/eye-core/eye-core.exe": "eye-core/eye-core.exe",
+      "resources/eye-core/_internal": "eye-core/_internal"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "both",
+        "languages": ["PortugueseBR"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      }
+    }
+  }
+}

@@ -11,6 +11,8 @@ fica em ui/renderer_cv2.py.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 # ---------------------------------------------------------------------
@@ -169,3 +171,94 @@ def compensar_ratio_por_yaw(ratio_x: float, yaw_graus: float, sensibilidade: flo
     """
     correcao = yaw_graus * sensibilidade
     return min(max(ratio_x - correcao, 0.0), 1.0)
+
+
+# =====================================================================
+# Divergência entre os olhos -- confiança do quadro
+# =====================================================================
+def divergencia_entre_olhos(ratio_esq: float, ratio_dir: float) -> float:
+    """
+    Diferença absoluta entre os ratios horizontais dos dois olhos.
+
+    Quando os dois olhos apontam para lugares muito diferentes, o quadro
+    normalmente não representa um olhar válido: pode ser piscada, oclusão,
+    reflexo na íris ou ruído do detector. Nesse caso é melhor ignorar o
+    quadro do que deixá-lo mexer no dwell ou entrar na calibração.
+    """
+    return abs(float(ratio_esq) - float(ratio_dir))
+
+
+def divergencia_dentro_do_limite(
+    ratio_esq: float, ratio_dir: float, limite: float
+) -> bool:
+    """
+    True quando a divergência entre os olhos está dentro do limite.
+
+    O limite é por pessoa: quem tem estrabismo pode divergir de forma
+    consistente, então ele fica em ``deteccao.divergencia_max`` e pode ser
+    afrouxado no Modo Cuidador sem tocar no código.
+    """
+    if limite <= 0:
+        raise ValueError("limite de divergência deve ser maior que zero")
+    return divergencia_entre_olhos(ratio_esq, ratio_dir) <= float(limite)
+
+
+# =====================================================================
+# Distância do rosto até a câmera (indicador informativo)
+# =====================================================================
+DISTANCIA_BOA = "boa"
+DISTANCIA_LONGE = "longe"
+DISTANCIA_PERTO = "perto"
+DISTANCIA_INDEFINIDA = "indefinida"
+
+
+def distancia_rosto_normalizada(
+    landmarks,
+    largura: int,
+    altura: int,
+    yaw_graus: float = 0.0,
+) -> float:
+    """
+    Medida relativa de distância do rosto até a câmera.
+
+    Usa a distância entre os cantos externos dos dois olhos, em fração da
+    largura do quadro. Quanto menor o valor, mais longe o rosto está. O
+    yaw da cabeça encurta essa distância na imagem; por isso o resultado é
+    dividido pelo cosseno do ângulo (limitado a 60 graus), compensando
+    cabeças levemente viradas.
+
+    Não é uma medida em centímetros: é um proxy estável para comparar o
+    enquadramento atual com a faixa configurada em ``deteccao``.
+    """
+    canto_direito = landmarks[OLHO_DIREITO_CANTOS[0]]
+    canto_esquerdo = landmarks[OLHO_ESQUERDO_CANTOS[1]]
+
+    dx = (float(canto_direito.x) - float(canto_esquerdo.x)) * largura
+    dy = (float(canto_direito.y) - float(canto_esquerdo.y)) * altura
+    medida = math.hypot(dx, dy) / max(float(largura), 1.0)
+
+    yaw = abs(float(yaw_graus))
+    fator = math.cos(math.radians(min(yaw, 60.0)))
+    return medida / max(fator, 0.5)
+
+
+def classificar_distancia(
+    medida: float,
+    longe_abaixo: float,
+    perto_acima: float,
+) -> str:
+    """
+    Classifica a medida de distância em ``longe``, ``boa`` ou ``perto``.
+
+    Os limites são absolutos e configuráveis: câmeras com campo de visão
+    muito diferente podem precisar de ajuste no Modo Cuidador. Quando os
+    limites são inválidos, devolve ``indefinida`` em vez de arriscar um
+    aviso errado.
+    """
+    if longe_abaixo <= 0 or perto_acima <= longe_abaixo:
+        return DISTANCIA_INDEFINIDA
+    if medida < float(longe_abaixo):
+        return DISTANCIA_LONGE
+    if medida > float(perto_acima):
+        return DISTANCIA_PERTO
+    return DISTANCIA_BOA

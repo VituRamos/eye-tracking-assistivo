@@ -1,4 +1,4 @@
-﻿# Eye-Tracking Assistivo V2.1
+﻿# Eye-Tracking Assistivo V2.2.4
 
 Sistema de comunicação assistiva por rastreamento ocular. O modo
 principal é uma **prancha de comunicação em grade** (estilo PECS) com
@@ -30,9 +30,13 @@ eye-tracking-assistivo/
 │   ├── erros.py            # caixa de erro nativa quando não há console
 │   └── logging_config.py   # logging estruturado (arquivo + console)
 ├── ui/
-│   ├── renderer_cv2.py     # menu, perfis e modo SIM/NÃO
-│   └── board_renderer.py   # prancha: cartões, ícones e calibração
-├── tests/                  # 134 testes (puros, sem câmera/MediaPipe)
+│   ├── design.py           # tokens, tipografia, Lona Pillow, SVG e componentes
+│   ├── assets/pictogramas/  # SVGs originais de OI, COMER, BEBER e BANHEIRO
+│   ├── renderer_cv2.py     # menu, perfis, SIM/NÃO, avisos e telas auxiliares
+│   └── board_renderer.py   # prancha: cartões, pictogramas e calibração
+├── preview_novo_design/    # sandbox visual isolado (não entra no .exe)
+├── prototipo_tauri/        # interface React/Tauri + motor empacotado
+├── tests/                  # 228 testes (puros, sem câmera/MediaPipe)
 ├── models/                 # modelo .task (baixado no 1º uso; ignorado no git)
 ├── perfis/                 # calibrações salvas por usuário (runtime)
 ├── logs/                   # logs de sessão (runtime)
@@ -41,6 +45,7 @@ eye-tracking-assistivo/
 ├── build_exe.ps1
 ├── requirements.txt
 ├── requirements-dev.txt
+├── requirements-preview.txt # dependências extras do sandbox visual
 ├── requirements-build.txt
 └── pyproject.toml          # configuração do Ruff
 ```
@@ -105,20 +110,58 @@ Para personalizar a configuração sem reconstruir o exe, crie
 `dist\config\settings.yaml`; esse arquivo tem prioridade sobre o
 empacotado.
 
+## Novo design (tema claro)
+
+A interface de produção usa o novo design aprovado no preview:
+
+- fundo claro (`#F4F1EA`), superfícies brancas e tipografia Segoe UI;
+- barra lateral com Prancha, Perfis, Calibração, Modo Cuidador e
+  Configurações;
+- cartões pastel para **OI**, **COMER**, **BEBER** e **BANHEIRO**, com
+  pictogramas vetoriais em `ui/assets/pictogramas/`;
+- foco em traço escuro e confirmação em verde, com banner de escolha;
+- telas novas de **Modo Cuidador** e **Configurações**, abertas com
+  `F2`/`G` e `F3`/`O`. No aplicativo Tauri, Configurações é um editor
+  completo; a tela `C` abre a escolha entre calibrar a prancha ou o
+  SIM / NÃO.
+
+As telas são desenhadas com Pillow em uma `Lona` e copiadas para o frame
+do OpenCV (`ui/design.py`). Tempos, seleção, calibração e persistência
+permanecem exatamente os mesmos da V2.1.
+
+A interface é renderizada **nativamente em 1920x1080**: textos, cartões e
+pictogramas são desenhados já na resolução final, sem upscale do frame. A
+captura e a detecção continuam em 1280x720 (`frame_proc`), o que mantém o
+custo do MediaPipe baixo; só a composição visual usa o canvas 1080p
+(`LARGURA_TELA`/`ALTURA_TELA` em `main.py`). Em monitores menores o
+fullscreen reduz a imagem proporcionalmente, sem perder o layout.
+
+A pasta `preview_novo_design/` continua no repositório como sandbox
+visual isolado, útil para revisar telas sem câmera. Ela não é importada
+pelo aplicativo e não entra no `.exe`.
+
+```bash
+python -m preview_novo_design --render-only   # gera os PNGs de referência
+python -m preview_novo_design                 # abre a navegação interativa
+```
+
 ## Controles
 
 | Tecla | Ação |
 |---|---|
 | `I` | Abrir a prancha de comunicação (modo principal) |
-| `C` | Calibrar a prancha (4 blocos) |
+| `C` | Abrir a escolha da calibração (prancha ou SIM / NÃO) |
+| `1` / `2` | Escolher a calibração na tela de escolha |
 | `S` | Abrir o modo SIM / NÃO (legado) |
 | `V` | Calibrar o modo SIM / NÃO (legado) |
 | `P` | Selecionar perfil salvo |
 | `N` | Criar novo perfil (na tela de perfis) |
+| `F2` ou `G` | Abrir o Modo Cuidador |
+| `F3` ou `O` | Abrir Configurações (editor completo no app Tauri) |
 | `M` | Voltar ao menu / cancelar calibração |
+| `ESC` | Voltar ao menu (cuidador/configurações) ou cancelar perfil |
 | `ESPAÇO` | Iniciar coleta durante a calibração |
-| `ENTER` | Confirmar (novo perfil / tela de calibração concluída) |
-| `ESC` | Cancelar a criação de perfil |
+| `ENTER` | Confirmar (novo perfil / telas de calibração concluída) |
 | `Q` | Sair |
 
 ## Prancha de comunicação
@@ -133,10 +176,10 @@ A prancha ocupa a tela inteira em uma grade 2x2:
 +----------------+----------------+
 ```
 
-Cada cartão tem cor própria, pictograma desenhado com OpenCV (sem
-imagens externas) e rótulo grande. O cartão em foco ganha borda amarela
-e uma barra de progresso; ao confirmar, a borda fica verde e o topo
-mostra **"VOCÊ ESCOLHEU: ..."**.
+Cada cartão tem cor pastel própria, pictograma vetorial (SVG em
+`ui/assets/pictogramas/`) e rótulo grande. O cartão em foco ganha um anel
+escuro e uma barra de progresso; ao confirmar, o anel fica verde, surge o
+selo **Confirmado** e o topo mostra a frase **"Você escolheu: ..."**.
 
 ### Calibração da prancha
 
@@ -207,6 +250,7 @@ média e classificar cada olho isoladamente.
 | `deteccao.alpha_ema` | 0.35 | suavização (0=lento, 1=sem) |
 | `deteccao.piscada.habilitada` | true | confirmação por piscada |
 | `deteccao.piscada.piscada_ms` | 350 | tempo de olho fechado |
+| `deteccao.divergencia_max` | 0.25 | diferença máxima entre os olhos; acima disso o quadro é ignorado |
 | `calibracao.duracao_ms` | 3000 | duração de cada fase |
 | `calibracao.min_amostras` | 30 | amostras válidas mínimas |
 | `calibracao.max_yaw_graus` | 25 | cabeça virada demais é ignorada |
@@ -217,10 +261,19 @@ média e classificar cada olho isoladamente.
 | `camera.backend` | `auto` | `auto` (MSMF → DirectShow → padrão), `msmf`, `dshow` ou `any` |
 | `camera.timeout_inicial_ms` | 6000 | espera máxima pelo 1º frame ao abrir |
 | `feedback.som` | true | bipes de confirmação |
-| `janela.fullscreen` | true | tela cheia |
+| `janela.fullscreen` | true | inicia em tela cheia (`F11` alterna) |
+| `janela.resolucao` | `1920x1080` | resolução da janela: `1280x720` ou `1920x1080` |
 
 Um YAML incompleto é mesclado com os padrões; valores inválidos fazem o
 sistema voltar para a configuração padrão e registrar o erro no log.
+
+No aplicativo Tauri, todas essas opções podem ser alteradas em
+**Configurações** (`F3`) e são gravadas no `settings.yaml` do usuário
+(`%LOCALAPPDATA%\com.eyetracking.prancha`) de forma atômica. Mudanças de
+detecção, piscada e som valem na hora; mudanças de câmera pedem reinício.
+O aplicativo inicia em **tela cheia** por padrão; ao desligar a tela
+cheia, a resolução escolhida é aplicada (reduzida proporcionalmente
+quando não cabe na tela).
 
 ## Rodando os testes
 
@@ -229,11 +282,17 @@ pytest
 ruff check .
 ```
 
-Cobertura atual (**134 testes**):
+Cobertura atual (**228 testes**):
 
-- `gaze_engine`: ratio horizontal/vertical, EMA, EAR, yaw;
+- `design`: Lona, transparência, leitura/rasterização dos 4 SVGs e
+  composição de sobreposições;
+- `renderer_cv2`: menu, perfis, novo perfil, SIM/NÃO, calibração,
+  gráfico, avisos, modo cuidador e configurações (fumaça, sem câmera),
+  incluindo as telas-chave em 1920x1080;
+- `gaze_engine`: ratio horizontal/vertical, EMA, EAR, yaw, distância do
+  rosto normalizada e classificação com histerese;
 - `board`: os 4 blocos, geometria da grade 2x2, vizinho mais próximo,
-  raio máximo e distância mínima entre pontos;
+  raio máximo, distância mínima entre pontos e translação de referências;
 - `board_calibration`: salvar/carregar, qualidade, validade, path
   traversal, JSON corrompido e coordenadas inválidas;
 - `board_renderer`: fumaça das telas de uso, confirmação, calibração e
@@ -242,12 +301,81 @@ Cobertura atual (**134 testes**):
   pausa com olhos fechados, piscada, confirmação e reset;
 - `calibration`: salvar/carregar, qualidade, validade, path traversal,
   JSON corrompido/chaves faltando/valores fora da faixa;
-- `config`: merge parcial, fallback e validação;
+- `config`: merge parcial, fallback, validação e gravação atômica;
+- `ponte_config`: tradução dos ajustes da interface para o YAML;
 - `model_loader`: download atômico, checksum e limpeza de `.part`;
 - `camera`: seleção de backend, abertura só após o 1º frame, liberação
   antes de reabrir, modo tolerante e diagnóstico;
 - `state_machine`: regras de calibração válida/fraca, prancha válida,
-  avisos e resets.
+  avisos e resets;
+- `motor_recentralizacao`: comando de recentralização, persistência,
+  desfazer único por sessão e aviso de distância no snapshot.
+
+## Novo na versão 2.2
+
+- **Configurações completas pela interface**: seis categorias (detecção,
+  piscada, calibração, prancha, câmera e sistema), com restaurar padrões,
+  descartar e salvar de forma atômica.
+- **Resolução da tela configurável**: 1280x720 ou 1920x1080; se não
+  couber, a janela reduz proporcionalmente e centraliza.
+- **Escolha de calibração**: a tecla `C` abre uma tela para escolher entre
+  calibrar a prancha (4 cartões) e o SIM / NÃO.
+- **Ajustes visuais**: fundo claro sem barras pretas nas laterais, botão
+  principal renomeado para "Prancha" e correção do card "O que você pode
+  fazer" no Modo Cuidador.
+- O selo "LOCAL · OFFLINE · DADOS NO COMPUTADOR" foi removido do menu.
+
+## Novo na versão 2.2.4
+
+- **Aviso de distância do rosto**: o aplicativo estima se o rosto está
+  longe ou perto demais da câmera. O aviso é apenas informativo -- não
+  bloqueia seleção, tempo de olhar nem calibração -- e usa histerese para
+  não piscar. As faixas e os tempos ficam em Configurações > Distância.
+- **Recentralização de 1 ponto**: no Modo Cuidador, a tecla `R` abre um
+  assistente para corrigir o desvio do olhar usando um único cartão
+  conhecido. Há prévia do deslocamento, aplicação e a opção `U` para
+  desfazer uma vez por sessão.
+- **Mapa do olhar ampliado**: o painel do Modo Cuidador agora também
+  mostra o estado da distância do rosto.
+
+## Novo na versão 2.2.3
+
+- **Mapa do olhar no Modo Cuidador**: painel ao vivo com os cartões
+  calibrados, a trilha recente e a posição atual do olhar, além do cartão
+  mais próximo, da distância e da divergência entre os olhos.
+- **Divergência entre os olhos como filtro**: quando os dois olhos apontam
+  para lugares muito diferentes, o quadro é tratado como inválido e não
+  move o dwell nem entra na calibração. O limite fica em
+  `deteccao.divergencia_max` (padrão 0.25) e pode ser aumentado em
+  Configurações > Detecção para quem tem estrabismo.
+- A detecção continua ativa no Modo Cuidador para o mapa funcionar ao
+  vivo, sem habilitar seleção nessa tela.
+
+## Novo na versão 2.2.2
+
+- **Pictograma acima da palavra**: os cartões da prancha e das telas de
+  calibração agora mostram o ícone centralizado sobre o rótulo, no mesmo
+  arranjo dos cartões OI / COMER / BEBER / BANHEIRO aprovados.
+- **Tela "Sair do app?"**: o botão "Sair" e a tecla `Q` abrem uma
+  confirmação com "Continuar usando" e "Sair". O perfil e a calibração
+  continuam salvos neste computador. `Esc` ou `N` cancelam; o olhar
+  nunca aciona essa tela.
+- **Aviso "Olhe para a tela" estável**: o aviso de cabeça fora de posição
+  só aparece após 450 ms contínuos e some após 350 ms contínuos de pose
+  boa, eliminando o pisca-pisca quando o ângulo oscila perto do limite.
+- **Modo escuro**: novo tema escuro em Configurações > Sistema, com
+  prévia imediata e preferência salva em `aparencia.tema` no
+  `settings.yaml`. A escolha é lembrada na próxima abertura.
+
+## Novo na versão 2.2.1
+
+- **Novos ícones no menu**: a prancha usa o quadrado dividido em quatro
+  partes e o SIM / NÃO usa o quadrado com linha vertical central.
+- **Tela cheia por padrão**: o aplicativo abre ocupando a tela inteira;
+  o comportamento pode ser alterado em Configurações > Sistema e `F11`
+  continua alternando a qualquer momento.
+- **Menu sem folga lateral**: os itens do menu encostam na borda esquerda
+  da tela, alinhados com o palco do aplicativo.
 
 ## O que foi corrigido nesta versão
 

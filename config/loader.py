@@ -24,6 +24,8 @@ logger = logging.getLogger("eyetracking.config")
 
 CAMINHO_PADRAO = paths.resolver_recurso("config/settings.yaml")
 
+RESOLUCOES_VALIDAS = ("1280x720", "1920x1080")
+
 
 def carregar_config(caminho: str | Path | None = None) -> dict[str, Any]:
     """
@@ -50,6 +52,30 @@ def carregar_config(caminho: str | Path | None = None) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 - fallback deliberado e registrado
         logger.error("Falha ao ler '%s' (%s). Usando valores padrão.", caminho, e)
         return padrao
+
+
+def salvar_config(cfg: dict[str, Any], caminho: str | Path) -> Path:
+    """
+    Valida e grava a configuração de volta no YAML.
+
+    A gravação é atômica (arquivo temporário + replace) para que uma
+    queda no meio da escrita não deixe o settings.yaml corrompido.
+    """
+    validar_config(cfg)
+    destino = Path(caminho)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    temporario = destino.with_name(destino.name + ".tmp")
+    texto = (
+        "# =====================================================================\n"
+        "# Configuração da Prancha Assistiva\n"
+        "# Gerada pelo próprio aplicativo em Configurações.\n"
+        "# =====================================================================\n\n"
+        + yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False)
+    )
+    temporario.write_text(texto, encoding="utf-8")
+    temporario.replace(destino)
+    logger.info("Configuração salva em '%s'.", destino)
+    return destino
 
 
 def _caminho_padrao() -> Path:
@@ -113,7 +139,7 @@ def _texto(valor: Any, nome: str) -> None:
         raise ValueError(f"{nome} deve ser um texto não vazio (recebido: {valor!r})")
 
 
-def _validar_config(cfg: dict[str, Any]) -> None:
+def validar_config(cfg: dict[str, Any]) -> None:
     det = cfg["deteccao"]
     _inteiro(det["dwell_ms"], "deteccao.dwell_ms", minimo=1)
     _inteiro(det["tolerancia_perda_ms"], "deteccao.tolerancia_perda_ms")
@@ -122,6 +148,21 @@ def _validar_config(cfg: dict[str, Any]) -> None:
             minimo_exclusivo=True)
     _inteiro(det["tamanho_historico_grafico"], "deteccao.tamanho_historico_grafico", minimo=20)
     _inteiro(det["limite_frames_sem_rosto"], "deteccao.limite_frames_sem_rosto", minimo=1)
+    _numero(det["divergencia_max"], "deteccao.divergencia_max", minimo=0.0,
+            maximo=1.0, minimo_exclusivo=True)
+
+    _booleano(det["distancia_habilitada"], "deteccao.distancia_habilitada")
+    _numero(det["distancia_longe_abaixo"], "deteccao.distancia_longe_abaixo",
+            minimo=0.0, maximo=1.0, minimo_exclusivo=True)
+    _numero(det["distancia_perto_acima"], "deteccao.distancia_perto_acima",
+            minimo=0.0, maximo=1.0, minimo_exclusivo=True)
+    if det["distancia_perto_acima"] <= det["distancia_longe_abaixo"]:
+        raise ValueError(
+            "deteccao.distancia_perto_acima deve ser maior que "
+            "deteccao.distancia_longe_abaixo"
+        )
+    _inteiro(det["distancia_entrada_ms"], "deteccao.distancia_entrada_ms")
+    _inteiro(det["distancia_saida_ms"], "deteccao.distancia_saida_ms")
 
     piscada = det["piscada"]
     _booleano(piscada["habilitada"], "deteccao.piscada.habilitada")
@@ -171,9 +212,26 @@ def _validar_config(cfg: dict[str, Any]) -> None:
 
     _booleano(cfg["feedback"]["som"], "feedback.som")
 
+    aparencia = cfg["aparencia"]
+    if aparencia["tema"] not in ("claro", "escuro"):
+        raise ValueError(
+            "aparencia.tema deve ser 'claro' ou 'escuro' "
+            f"(recebido: {aparencia['tema']!r})"
+        )
+
     janela = cfg["janela"]
     _texto(janela["titulo"], "janela.titulo")
     _booleano(janela["fullscreen"], "janela.fullscreen")
+    if janela["resolucao"] not in RESOLUCOES_VALIDAS:
+        opcoes = ", ".join(RESOLUCOES_VALIDAS)
+        raise ValueError(
+            f"janela.resolucao deve ser uma de: {opcoes} "
+            f"(recebido: {janela['resolucao']!r})"
+        )
+
+
+# Compatibilidade com o nome antigo (usado por testes/imports externos).
+_validar_config = validar_config
 
 
 def _config_padrao() -> dict[str, Any]:
@@ -186,6 +244,12 @@ def _config_padrao() -> dict[str, Any]:
             "alpha_ema": 0.35,
             "tamanho_historico_grafico": 200,
             "limite_frames_sem_rosto": 60,
+            "divergencia_max": 0.25,
+            "distancia_habilitada": True,
+            "distancia_longe_abaixo": 0.11,
+            "distancia_perto_acima": 0.34,
+            "distancia_entrada_ms": 800,
+            "distancia_saida_ms": 600,
             "piscada": {
                 "habilitada": True,
                 "limiar_ear": 0.15,
@@ -222,8 +286,10 @@ def _config_padrao() -> dict[str, Any]:
         "perfis": {"pasta": "perfis", "validade_dias": 7},
         "logs": {"pasta": "logs", "nivel": "INFO"},
         "feedback": {"som": True},
+        "aparencia": {"tema": "claro"},
         "janela": {
             "titulo": "Eye-Tracking Assistivo V2.1 (MediaPipe)",
             "fullscreen": True,
+            "resolucao": "1920x1080",
         },
     }

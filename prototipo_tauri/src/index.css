@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+@theme {
+  --color-fundo: #f4f1ea;
+  --color-superficie: #ffffff;
+  --color-borda: #dbd8d0;
+  --color-texto: #1b2430;
+  --color-apoio: #4d6572;
+  --color-neutro: #e7e4dc;
+  --color-confirmado: #1f7a4a;
+  --color-confirmado-fundo: #e4f2e9;
+  --color-atencao: #9b4a08;
+  --color-atencao-fundo: #fbebdd;
+  --color-destaque: #1b2430;
+  --color-destaque-texto: #f4f1ea;
+  --color-oi: #f4c6d3;
+  --color-comer: #f6d58c;
+  --color-beber: #a3ddd2;
+  --color-banheiro: #b3cdf3;
+  --font-sans: "Segoe UI", "Segoe UI Variable", Arial, sans-serif;
+}
+
+/*
+ * Cores usadas em estilos inline (SVG, anéis de foco e trilhos de
+ * progresso). Ficam fora do @theme porque não geram utilitários.
+ */
+:root {
+  color-scheme: light;
+  --cor-trilho: #dcd8cf;
+  --cor-cartao-inativo: #e7e4dc;
+  --cor-cartao-inativo-borda: #dbd8d0;
+  --cor-anel-externo: #ffffff;
+  --cor-serie-dir: #c4621a;
+}
+
+html[data-tema="escuro"] {
+  color-scheme: dark;
+  --color-fundo: #14181d;
+  --color-superficie: #1c232b;
+  --color-borda: #333c46;
+  --color-texto: #f2efe7;
+  --color-apoio: #a8b4be;
+  --color-neutro: #262f39;
+  --color-confirmado: #63d394;
+  --color-confirmado-fundo: #173326;
+  --color-atencao: #f0a25f;
+  --color-atencao-fundo: #3a2618;
+  --color-destaque: #232d38;
+  --color-destaque-texto: #f4f1ea;
+  --cor-trilho: #333c46;
+  --cor-cartao-inativo: #222a33;
+  --cor-cartao-inativo-borda: #333c46;
+  --cor-anel-externo: #1c232b;
+  --cor-serie-dir: #e89a60;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-fundo);
+  color: var(--color-texto);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+}
+
+@layer base {
+  button {
+    font: inherit;
+    color: inherit;
+  }
+}
+
+/*
+ * Pictogramas do _v2 usados como máscara (permite tingir com qualquer cor).
+ * A URL chega por `--pictograma`, definida no componente Pictograma.
+ */
+.pictograma {
+  display: block;
+  mask-image: var(--pictograma);
+  -webkit-mask-image: var(--pictograma);
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+  mask-size: contain;
+  -webkit-mask-size: contain;
+}
+
+@keyframes entrada {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.anim-entrada {
+  animation: entrada 220ms ease-out both;
+}
+
+@keyframes pulso {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+}
+
+.pulso {
+  animation: pulso 1.5s ease-in-out infinite;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.toast-in {
+  animation: toast-in 180ms ease-out both;
+}
