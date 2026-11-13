@@ -101,6 +101,61 @@ def configurar_janela(cfg, sem_fullscreen: bool) -> None:
         cv2.setWindowProperty(titulo, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
 
+def focar_janela(titulo: str) -> bool:
+    """Garante foco de teclado na janela do OpenCV (Windows).
+
+    Em tela cheia a janela pode aparecer no monitor sem receber o foco do
+    teclado. Nesse estado o ``cv2.waitKey`` não entrega nenhuma tecla e o
+    aplicativo parece "travado", embora os quadros continuem atualizando.
+
+    Retorna ``True`` se a janela estiver em primeiro plano ao final.
+    """
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        hwnd = user32.FindWindowW(None, titulo)
+        if not hwnd:
+            return False
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW (não altera o tamanho)
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.SetFocus(hwnd)
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+
+        # O Windows bloqueia SetForegroundWindow quando outro processo está
+        # em primeiro plano. Anexar o input ao thread atual contorna isso.
+        atual = user32.GetForegroundWindow()
+        tid_atual = user32.GetWindowThreadProcessId(atual, None)
+        tid_local = kernel32.GetCurrentThreadId()
+        user32.AttachThreadInput(tid_local, tid_atual, True)
+        user32.SetForegroundWindow(hwnd)
+        user32.SetFocus(hwnd)
+        user32.AttachThreadInput(tid_local, tid_atual, False)
+        return user32.GetForegroundWindow() == hwnd
+    except Exception:  # pragma: no cover - depende da API do Windows
+        logger.debug("Não foi possível forçar o foco da janela.", exc_info=True)
+        return False
+
+
+def normalizar_tecla(tecla: int) -> int:
+    """Converte letras maiúsculas em minúsculas para os atalhos.
+
+    O Windows devolve maiúsculas quando Caps Lock ou Shift estão ativos.
+    Os atalhos são os mesmos em qualquer um dos casos.
+    """
+    if ord("A") <= tecla <= ord("Z"):
+        return tecla + (ord("a") - ord("A"))
+    return tecla
+
+
 # =====================================================================
 # Diagnóstico (--check) -- útil para validar o .exe sem webcam
 # =====================================================================
@@ -435,6 +490,10 @@ def main(argv: list[str] | None = None) -> int:
     pos_y = altura - altura_grafico - 20
     timestamp_ms = 0
     ultimo_aviso_camera = time.monotonic()
+    inicio_app = time.monotonic()
+    ultima_tentativa_foco = 0.0
+    janela_focada = False
+    tecla_recebida = False
 
     try:
         while True:
@@ -602,6 +661,9 @@ def main(argv: list[str] | None = None) -> int:
                     app.resetar_selecao()
 
             tecla = cv2.waitKey(1) & 0xFF
+            # No cadastro de perfil o texto digitado preserva maiúsculas.
+            if app.estado != EstadoApp.NOVO_PERFIL:
+                tecla = normalizar_tecla(tecla)
 
             # =========================================================
             if app.estado == EstadoApp.MENU:
@@ -623,12 +685,15 @@ def main(argv: list[str] | None = None) -> int:
                     entrar_no_modo_ativo(agora)
                 elif tecla == ord('v'):
                     iniciar_calibracao(agora)
+                elif tecla == 27:  # ESC
+                    logger_raiz.info("Encerrando por solicitação do usuário (ESC).")
+                    break
 
             # =========================================================
             elif app.estado == EstadoApp.SELECIONAR_PERFIL:
                 perfis = perfis_disponiveis()
                 ui.desenhar_selecao_perfil(frame, largura, altura, perfis, app.perfil_ativo)
-                if tecla == ord('m'):
+                if tecla in (ord('m'), 27):
                     app.transicionar(EstadoApp.MENU)
                 elif tecla == ord('n'):
                     app.nome_digitado = ""
@@ -714,7 +779,7 @@ def main(argv: list[str] | None = None) -> int:
                     app.tempo_inicio_coleta_prancha = agora
                     reiniciar_filtros()
                     app.transicionar(EstadoApp.PRANCHA_CALIB_COLETANDO)
-                elif tecla == ord('m'):
+                elif tecla in (ord('m'), 27):
                     app.resetar_prancha()
                     app.transicionar(EstadoApp.MENU)
 
@@ -808,7 +873,7 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         app.transicionar(EstadoApp.PRANCHA_CALIB_PREPARAR)
 
-                if tecla == ord('m') and app.estado == EstadoApp.PRANCHA_CALIB_COLETANDO:
+                if tecla in (ord('m'), 27) and app.estado == EstadoApp.PRANCHA_CALIB_COLETANDO:
                     app.resetar_prancha()
                     app.transicionar(EstadoApp.MENU)
                     logger_raiz.info("Calibração da prancha cancelada pelo usuário.")
@@ -825,7 +890,7 @@ def main(argv: list[str] | None = None) -> int:
                     frame, largura, altura, sucesso,
                     app.referencias_prancha, distancia,
                 )
-                if tecla in (13, 10, ord('m')):
+                if tecla in (13, 10, ord('m'), 27):
                     app.transicionar(EstadoApp.MENU)
 
             # =========================================================
@@ -853,7 +918,7 @@ def main(argv: list[str] | None = None) -> int:
                     cv2.putText(frame, texto_debug, (12, altura - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (120, 120, 120), 1)
 
-                    if tecla == ord('m'):
+                    if tecla in (ord('m'), 27):
                         controlador.reset()
                         app.resetar_selecao()
                         app.transicionar(EstadoApp.MENU)
@@ -884,7 +949,7 @@ def main(argv: list[str] | None = None) -> int:
                     app.tempo_inicio_coleta = agora
                     app.calibracao_ja_feita = False
                     reiniciar_filtros()
-                elif tecla == ord('m'):
+                elif tecla in (ord('m'), 27):
                     app.transicionar(EstadoApp.MENU)
 
             # =========================================================
@@ -985,7 +1050,7 @@ def main(argv: list[str] | None = None) -> int:
                                 feedback.erro()
                         app.transicionar(EstadoApp.CALIB_CONCLUIDA)
 
-                if tecla == ord('m') and app.estado == EstadoApp.CALIB_COLETANDO:
+                if tecla in (ord('m'), 27) and app.estado == EstadoApp.CALIB_COLETANDO:
                     app.tempo_inicio_coleta = 0.0
                     app.coletas_calibracao = []
                     app.calibracao_ja_feita = False
@@ -1001,7 +1066,7 @@ def main(argv: list[str] | None = None) -> int:
                     app.media_esquerda_calibrada, app.media_direita_calibrada,
                     abs(app.media_direita_calibrada - app.media_esquerda_calibrada),
                 )
-                if tecla in (13, 10, ord('m')):
+                if tecla in (13, 10, ord('m'), 27):
                     app.transicionar(EstadoApp.MENU)
 
             # =========================================================
@@ -1047,7 +1112,7 @@ def main(argv: list[str] | None = None) -> int:
                             cv2.rectangle(frame, (largura - progresso, y_barra),
                                           (largura, y_barra + 15), (0, 0, 255), -1)
 
-                    if tecla == ord('m'):
+                    if tecla in (ord('m'), 27):
                         controlador.reset()
                         app.resetar_selecao()
                         app.transicionar(EstadoApp.MENU)
@@ -1065,6 +1130,23 @@ def main(argv: list[str] | None = None) -> int:
                 ui.desenhar_aviso(frame, largura, altura, app.aviso)
 
             cv2.imshow(janela_cfg["titulo"], frame)
+
+            if tecla != 255:
+                tecla_recebida = True
+
+            if (
+                not tecla_recebida
+                and agora - inicio_app < 20.0
+                and agora - ultima_tentativa_foco >= 0.5
+            ):
+                # A janela em tela cheia pode abrir (ou ser desfocada logo
+                # depois) sem o foco do teclado; sem foco o waitKey não
+                # recebe nenhum comando. Tentamos recuperar o foco até a
+                # primeira tecla chegar, por no máximo 20 segundos.
+                ultima_tentativa_foco = agora
+                if not janela_focada:
+                    logger_raiz.info("Solicitando foco da janela para o teclado.")
+                janela_focada = focar_janela(janela_cfg["titulo"])
 
             if tecla == ord('q'):
                 logger_raiz.info("Encerrando por solicitação do usuário.")

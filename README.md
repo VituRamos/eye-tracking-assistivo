@@ -32,7 +32,8 @@ eye-tracking-assistivo/
 ├── ui/
 │   ├── renderer_cv2.py     # menu, perfis e modo SIM/NÃO
 │   └── board_renderer.py   # prancha: cartões, ícones e calibração
-├── tests/                  # 134 testes (puros, sem câmera/MediaPipe)
+├── preview_novo_design/    # sandbox do novo design (tema claro; não entra no .exe)
+├── tests/                  # 143 testes (puros, sem câmera/MediaPipe)
 ├── models/                 # modelo .task (baixado no 1º uso; ignorado no git)
 ├── perfis/                 # calibrações salvas por usuário (runtime)
 ├── logs/                   # logs de sessão (runtime)
@@ -41,6 +42,7 @@ eye-tracking-assistivo/
 ├── build_exe.ps1
 ├── requirements.txt
 ├── requirements-dev.txt
+├── requirements-preview.txt # Pillow, apenas para o sandbox visual
 ├── requirements-build.txt
 └── pyproject.toml          # configuração do Ruff
 ```
@@ -105,6 +107,23 @@ Para personalizar a configuração sem reconstruir o exe, crie
 `dist\config\settings.yaml`; esse arquivo tem prioridade sobre o
 empacotado.
 
+## Preview do novo design (tema claro)
+
+A pasta `preview_novo_design/` é um **sandbox visual isolado**: recria as
+telas do novo design com Pillow para revisão, sem substituir a interface
+de produção e sem entrar no `.exe`. Ela não altera tempos, seleção,
+calibração nem persistência.
+
+```bash
+pip install -r requirements-preview.txt
+python -m preview_novo_design --render-only   # gera os PNGs
+python -m preview_novo_design                 # abre a navegação interativa
+```
+
+As telas ficam em `preview_novo_design/saidas/` (1280x720, 1920x1080 e
+uma folha de contato). Detalhes, tokens e decisões estão em
+`preview_novo_design/README.md`.
+
 ## Controles
 
 | Tecla | Ação |
@@ -118,8 +137,13 @@ empacotado.
 | `M` | Voltar ao menu / cancelar calibração |
 | `ESPAÇO` | Iniciar coleta durante a calibração |
 | `ENTER` | Confirmar (novo perfil / tela de calibração concluída) |
-| `ESC` | Cancelar a criação de perfil |
+| `ESC` | Voltar / cancelar (no menu, encerra o app) |
 | `Q` | Sair |
+
+> **Se o teclado não responder**, clique uma vez na janela do aplicativo e
+> pressione a tecla de novo. Em tela cheia o Windows pode abrir a janela sem
+> entregar o foco do teclado; o app tenta recuperar o foco sozinho nos
+> primeiros 20 segundos, mas um clique garante o funcionamento.
 
 ## Prancha de comunicação
 
@@ -286,6 +310,11 @@ Cobertura atual (**134 testes**):
 - Avisos e bipes de confirmação/erro; erros fatais aparecem em caixa
   nativa quando não há console.
 - O app detecta o fechamento da janela e encerra a sessão.
+- **Teclado em tela cheia**: a janela do OpenCV podia abrir sem foco, e
+  aí nenhuma tecla era recebida. O app agora solicita o foco ao Windows
+  e tenta recuperá-lo até a primeira tecla (20 s), além de orientar um
+  clique na janela. Atalhos aceitam maiúsculas e minúsculas, e `ESC`
+  volta/cancela em todas as telas (no menu, encerra).
 
 **Higiene**
 

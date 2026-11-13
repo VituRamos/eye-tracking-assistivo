@@ -232,8 +232,11 @@ def desenhar_menu(frame, largura, altura, calibracao_valida, media_esq, media_di
                 cv2.FONT_HERSHEY_SIMPLEX, 0.52, cor_sim_nao_status, 1)
 
     cv2.putText(frame, "Dica: mantenha o rosto enquadrado e a cabeca ereta",
-                (largura // 2 - 300, altura - 45),
+                (largura // 2 - 300, altura - 55),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (170, 170, 170), 1)
+    cv2.putText(frame, "Se o teclado nao responder, clique na janela e tente de novo",
+                (largura // 2 - 300, altura - 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (130, 130, 130), 1)
 
 
 def desenhar_selecao_perfil(frame, largura, altura, perfis: list[str], perfil_ativo: str | None = None):
