@@ -4,6 +4,7 @@ entrega
 src-tauri/target
 src-tauri/gen
 src-tauri/resources/eye-core
+capturas
 *.local
 .vite
 *.tsbuildinfo

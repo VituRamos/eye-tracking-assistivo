@@ -29,6 +29,10 @@ models/*.task
 # Sidecar empacotado pelo PyInstaller (gerado por npm run sidecar)
 prototipo_tauri/src-tauri/resources/eye-core/
 
+# Prototipos e capturas de tela
+preview_novo_design/
+prototipo_tauri/capturas/
+
 # Sistema
 .DS_Store
 Thumbs.db
