@@ -314,7 +314,10 @@ def _config_padrao() -> dict[str, Any]:
                 "https://storage.googleapis.com/mediapipe-models/"
                 "face_landmarker/face_landmarker/float16/1/face_landmarker.task"
             ),
-            "sha256_esperado": "",
+            # Modelo de 478 pontos (com iris) versionado no repositorio.
+            "sha256_esperado": (
+                "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+            ),
         },
         "perfis": {"pasta": "perfis", "validade_dias": 7},
         "logs": {"pasta": "logs", "nivel": "INFO"},

@@ -79,7 +79,10 @@ camera:
 modelo:
   caminho: "models/face_landmarker.task"
   url: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
-  sha256_esperado: "" # opcional: preencha para validar integridade do download
+  # O modelo vai versionado no repositorio (models/face_landmarker.task).
+  # O checksum garante que o arquivo local e o oficial sao o mesmo modelo
+  # de 478 pontos (com iris). Se faltar ou divergir, ele baixa de novo.
+  sha256_esperado: "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
 
 perfis:
   pasta: "perfis"

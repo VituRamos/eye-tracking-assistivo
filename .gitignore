@@ -29,8 +29,12 @@ entrega/**
 logs/*.log
 perfis/*.json
 !perfis/.gitkeep
+# O modelo do MediaPipe e versionado de proposito: assim o clone roda
+# offline e o build do instalador nao depende de download. Outros .task
+# continuam fora do repositorio.
 models/*.task
 !models/.gitkeep
+!models/face_landmarker.task
 
 # Sidecar empacotado pelo PyInstaller (gerado por npm run sidecar)
 prototipo_tauri/src-tauri/resources/eye-core/

@@ -36,8 +36,8 @@ eye-tracking-assistivo/
 │   └── board_renderer.py   # prancha: cartões, pictogramas e calibração
 ├── preview_novo_design/    # sandbox visual isolado (não entra no .exe)
 ├── prototipo_tauri/        # interface React/Tauri + motor empacotado
-├── tests/                  # 228 testes (puros, sem câmera/MediaPipe)
-├── models/                 # modelo .task (baixado no 1º uso; ignorado no git)
+├── tests/                  # 253 testes (puros, sem câmera/MediaPipe)
+├── models/                 # modelo .task versionado (478 pontos, roda offline)
 ├── perfis/                 # calibrações salvas por usuário (runtime)
 ├── logs/                   # logs de sessão (runtime)
 ├── main.py                 # ponto de entrada -- só orquestra os módulos
@@ -60,13 +60,37 @@ eye-tracking-assistivo/
 ## Instalação (código-fonte)
 
 ```bash
+git clone https://github.com/VituRamos/eye-tracking-assistivo.git
+cd eye-tracking-assistivo
 python -m venv .venv
 .venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
 pip install -r requirements-dev.txt
 ```
 
-Na primeira execução, o modelo `models/face_landmarker.task` (≈3,6 MB) é
-baixado automaticamente.
+O clone já traz o que o aplicativo precisa em tempo de execução: o modelo
+`models/face_landmarker.task` (≈3,6 MB, 478 pontos com íris), a configuração
+padrão e os pictogramas. Ele roda **sem internet**; se o modelo faltar ou o
+checksum divergir, é baixado da URL oficial e verificado pelo SHA-256 (ver
+`models/README.md`).
+
+Para preparar tudo de uma vez no Windows (Python + interface):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+A interface React/Tauri exige Node 20+ (e Rust 1.80+ apenas para o build
+desktop):
+
+```powershell
+cd prototipo_tauri
+npm install
+npm run dev        # navegador, com backend de demonstração
+npm run tauri dev  # app desktop com o motor Python real
+```
+
+Para gerar o instalador Tauri, rode `npm run sidecar` antes de
+`npm run tauri build` (detalhes em `prototipo_tauri/README.md`).
 
 ## Executando
 
