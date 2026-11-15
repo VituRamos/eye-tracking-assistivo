@@ -19,6 +19,10 @@ class TestAplicarAjustes:
                     "dwellMs": 900,
                     "alphaEma": 0.5,
                     "divergenciaMax": 0.4,
+                    "semRostoMs": 2500,
+                    "compensarYaw": True,
+                    "yawSensibilidade": 0.006,
+                    "confiancaMinima": 0.6,
                     "distanciaHabilitada": False,
                     "distanciaLongeAbaixo": 0.09,
                     "distanciaPertoAcima": 0.31,
@@ -27,7 +31,11 @@ class TestAplicarAjustes:
                     "piscadaHabilitada": False,
                     "limiarEar": 0.2,
                 },
-                "calibracao": {"duracaoMs": 4000},
+                "calibracao": {
+                    "duracaoMs": 4000,
+                    "maxPitchGraus": 20,
+                    "maxRollGraus": 35,
+                },
                 "camera": {"largura": 1920, "backend": "dshow"},
                 "perfis": {"validadeDias": 15},
                 "feedback": {"som": False},
@@ -39,6 +47,10 @@ class TestAplicarAjustes:
         assert novo["deteccao"]["dwell_ms"] == 900
         assert novo["deteccao"]["alpha_ema"] == 0.5
         assert novo["deteccao"]["divergencia_max"] == 0.4
+        assert novo["deteccao"]["sem_rosto_ms"] == 2500
+        assert novo["deteccao"]["compensar_yaw"] is True
+        assert novo["deteccao"]["yaw_sensibilidade"] == 0.006
+        assert novo["deteccao"]["confianca_minima"] == 0.6
         assert novo["deteccao"]["distancia_habilitada"] is False
         assert novo["deteccao"]["distancia_longe_abaixo"] == 0.09
         assert novo["deteccao"]["distancia_perto_acima"] == 0.31
@@ -47,6 +59,8 @@ class TestAplicarAjustes:
         assert novo["deteccao"]["piscada"]["habilitada"] is False
         assert novo["deteccao"]["piscada"]["limiar_ear"] == 0.2
         assert novo["calibracao"]["duracao_ms"] == 4000
+        assert novo["calibracao"]["max_pitch_graus"] == 20
+        assert novo["calibracao"]["max_roll_graus"] == 35
         assert novo["camera"]["largura"] == 1920
         assert novo["camera"]["backend"] == "dshow"
         assert novo["perfis"]["validade_dias"] == 15
@@ -59,6 +73,13 @@ class TestAplicarAjustes:
         base = _config_padrao()
         aplicar_ajustes_config(base, {"deteccao": {"dwellMs": 900}})
         assert base["deteccao"]["dwell_ms"] == 700
+
+    def test_interface_antiga_em_frames_e_convertida_para_ms(self):
+        novo = aplicar_ajustes_config(
+            _config_padrao(),
+            {"deteccao": {"limiteFramesSemRosto": 90}},
+        )
+        assert novo["deteccao"]["sem_rosto_ms"] == 3000
 
     def test_booleano_invalido_e_rejeitado(self):
         with pytest.raises(ValueError):

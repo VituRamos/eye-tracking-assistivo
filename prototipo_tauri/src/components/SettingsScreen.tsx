@@ -167,13 +167,22 @@ export function SettingsScreen({ snapshot, onSalvar, onVoltar }: Props) {
               />
               <CampoNumero
                 rotulo="Aviso sem rosto"
-                ajuda="Frames sem rosto antes de pedir para reposicionar."
-                valor={rascunho.deteccao.limiteFramesSemRosto}
-                onChange={(v) => atualizar("deteccao", "limiteFramesSemRosto", v)}
-                min={1}
-                max={600}
-                step={1}
-                sufixo="frames"
+                ajuda="Tempo contínuo sem detectar o rosto antes de pedir para reposicionar."
+                valor={rascunho.deteccao.semRostoMs}
+                onChange={(v) => atualizar("deteccao", "semRostoMs", v)}
+                min={200}
+                max={10000}
+                step={100}
+                sufixo="ms"
+              />
+              <CampoNumero
+                rotulo="Confiança do detector"
+                ajuda="Quanto maior, mais rigoroso. Aumente em ambientes com ruído."
+                valor={rascunho.deteccao.confiancaMinima}
+                onChange={(v) => atualizar("deteccao", "confiancaMinima", v)}
+                min={0.1}
+                max={1}
+                step={0.05}
               />
               <CampoNumero
                 rotulo="Divergência entre olhos"
@@ -305,13 +314,48 @@ export function SettingsScreen({ snapshot, onSalvar, onVoltar }: Props) {
               />
               <CampoNumero
                 rotulo="Ângulo máximo da cabeça"
-                ajuda="Acima disso, a cabeça está virada demais e a amostra é ignorada."
+                ajuda="Acima disso, cabeça virada demais para os lados: a amostra é ignorada."
                 valor={rascunho.calibracao.maxYawGraus}
                 onChange={(v) => atualizar("calibracao", "maxYawGraus", v)}
                 min={5}
                 max={90}
                 step={1}
                 sufixo="°"
+              />
+              <CampoNumero
+                rotulo="Inclinação para cima/baixo"
+                ajuda="Limite de pitch. Cabeça muito alta ou baixa distorce a posição vertical."
+                valor={rascunho.calibracao.maxPitchGraus}
+                onChange={(v) => atualizar("calibracao", "maxPitchGraus", v)}
+                min={5}
+                max={90}
+                step={1}
+                sufixo="°"
+              />
+              <CampoNumero
+                rotulo="Inclinação lateral"
+                ajuda="Limite de roll (orelha na direção do ombro)."
+                valor={rascunho.calibracao.maxRollGraus}
+                onChange={(v) => atualizar("calibracao", "maxRollGraus", v)}
+                min={5}
+                max={90}
+                step={1}
+                sufixo="°"
+              />
+              <Alternador
+                rotulo="Compensar inclinação da cabeça"
+                ajuda="Experimental e desligado por padrão. Se ligar, recalibre a prancha com a opção ativa."
+                valor={rascunho.deteccao.compensarYaw}
+                onChange={(v) => atualizar("deteccao", "compensarYaw", v)}
+              />
+              <CampoNumero
+                rotulo="Sensibilidade da compensação"
+                ajuda="Deslocamento do olhar por grau de cabeça virada. Só vale com a compensação ligada."
+                valor={rascunho.deteccao.yawSensibilidade}
+                onChange={(v) => atualizar("deteccao", "yawSensibilidade", v)}
+                min={0.001}
+                max={0.02}
+                step={0.001}
               />
               <CampoNumero
                 rotulo="Separação mínima"

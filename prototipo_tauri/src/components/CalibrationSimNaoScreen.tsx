@@ -125,7 +125,7 @@ export function CalibrationSimNaoScreen({ snapshot, onIniciar, onVoltar }: Props
             />
           </div>
           <p className="absolute left-1/2 top-[122px] -translate-x-1/2 -translate-y-1/2 text-[15px] text-apoio">
-            {calib.amostras}/{calib.minimo} amostras válidas ·{" "}
+            {calib.amostras} amostras válidas · mínimo {calib.minimo} ·{" "}
             {calib.descartadas} descartadas
           </p>
           <button

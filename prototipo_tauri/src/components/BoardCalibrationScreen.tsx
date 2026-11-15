@@ -1,5 +1,7 @@
 import { AlertTriangle, Check } from "lucide-react";
-import { BLOCOS, bloco, type SnapshotApp } from "../types";
+import { BLOCOS, bloco, type BlocoId, type SnapshotApp } from "../types";
+import { referenciasCompletas } from "./mapaOlhar";
+import { OlharCursor, type CentroCartao } from "./OlharCursor";
 import { Pictograma } from "./Pictograma";
 import { ScreenHeader } from "./ScreenHeader";
 
@@ -7,6 +9,12 @@ interface Props {
   snapshot: SnapshotApp;
   onIniciar: () => void;
   onVoltar: () => void;
+  /**
+   * Referências da calibração anterior. A calibração em andamento começa
+   * com as referências vazias, mas o ponto do olhar ainda pode usar as
+   * antigas para se posicionar sobre os cartões.
+   */
+  referenciasAntigas?: Record<string, [number, number]>;
 }
 
 const TOPO = 124;
@@ -26,11 +34,32 @@ function caixa(indice: number) {
   return { left: x, top: y, width: CELULA_L, height: CELULA_A };
 }
 
+/** Centros das caixas de calibração, usados pelo ponto do olhar. */
+const CENTROS: Record<BlocoId, CentroCartao> = Object.fromEntries(
+  BLOCOS.map((b, indice) => {
+    const pos = caixa(indice);
+    return [b.id, { x: pos.left + pos.width / 2, y: pos.top + pos.height / 2 }];
+  }),
+) as Record<BlocoId, CentroCartao>;
+
 /** Calibração da prancha: destaca o bloco alvo e mostra a coleta. */
-export function BoardCalibrationScreen({ snapshot, onIniciar, onVoltar }: Props) {
+export function BoardCalibrationScreen({
+  snapshot,
+  onIniciar,
+  onVoltar,
+  referenciasAntigas,
+}: Props) {
   const calib = snapshot.pranchaCalib;
   const concluida = snapshot.tela === "PRANCHA_CALIB_CONCLUIDA";
   const alvo = calib.blocoId;
+
+  const antigas = referenciasCompletas(referenciasAntigas)
+    ? referenciasAntigas
+    : undefined;
+  const atuais = referenciasCompletas(snapshot.pranchaCalib.referencias)
+    ? snapshot.pranchaCalib.referencias
+    : undefined;
+  const referenciasOlhar = antigas ?? atuais;
 
   if (concluida) {
     return (
@@ -108,7 +137,7 @@ export function BoardCalibrationScreen({ snapshot, onIniciar, onVoltar }: Props)
         subtitulo="Calibração da prancha"
         direita={
           <span className="text-[13px] text-apoio">
-            Cuidador: {calib.amostras} de {calib.minimo} amostras
+            Cuidador: {calib.amostras} amostras válidas · mínimo {calib.minimo}
           </span>
         }
       />
@@ -163,6 +192,15 @@ export function BoardCalibrationScreen({ snapshot, onIniciar, onVoltar }: Props)
         />
       </div>
 
+      {referenciasOlhar && (
+        <OlharCursor
+          snapshot={snapshot}
+          centros={CENTROS}
+          referencias={referenciasOlhar}
+          progresso={calib.progresso}
+        />
+      )}
+
       {calib.aguardando ? (
         <button
           onClick={onIniciar}
@@ -172,8 +210,8 @@ export function BoardCalibrationScreen({ snapshot, onIniciar, onVoltar }: Props)
         </button>
       ) : (
         <p className="absolute left-1/2 top-[704px] -translate-x-1/2 -translate-y-1/2 text-[14px] text-apoio">
-          {calib.amostras}/{calib.minimo} amostras válidas · {calib.descartadas}{" "}
-          descartadas (piscada/pose) ·{" "}
+          {calib.amostras} amostras válidas · {calib.descartadas} descartadas
+          (piscada/pose) ·{" "}
           <button
             onClick={onVoltar}
             className="rounded px-1 underline-offset-2 hover:underline"

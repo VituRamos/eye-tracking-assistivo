@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, RotateCcw, X } from "lucide-react";
 import { BLOCOS, bloco, type BlocoId, type SnapshotApp } from "../types";
+import { criarProjecaoMapa } from "./mapaOlhar";
 
 /**
  * Recentralização de 1 ponto.
@@ -34,10 +35,6 @@ interface Ponto {
 
 function limitar(valor: number): number {
   return Math.min(1, Math.max(0, valor));
-}
-
-function px(valor: number): number {
-  return MARGEM + limitar(valor) * UTIL;
 }
 
 function porcentagem(valor: number): string {
@@ -157,6 +154,21 @@ export function RecenterModal({ snapshot, onAplicar, onFechar }: Props) {
     return saida;
   }, [referencias, delta]);
 
+  // Mesma projeção do mapa do olhar, montada com as referências ATUAIS.
+  // Assim os cartões salvos caem nos quadrantes e a prévia mostra o quanto
+  // eles andam quando o deslocamento for aplicado.
+  const projecao = useMemo(
+    () => criarProjecaoMapa(referencias),
+    [referencias],
+  );
+  const paraPixel = (valor: number) => MARGEM + limitar(valor) * UTIL;
+  const pixel = (ponto: [number, number]) => {
+    const projetado = projecao.projetar(ponto[0], ponto[1]);
+    return { x: paraPixel(projetado.x), y: paraPixel(projetado.y) };
+  };
+
+  const medidoPixel = medido ? pixel([medido.x, medido.y]) : null;
+
   const amostrasSuficientes = amostras.length >= MIN_AMOSTRAS;
   const podeAplicar = Boolean(novas) && amostrasSuficientes;
   const progresso =
@@ -238,15 +250,15 @@ export function RecenterModal({ snapshot, onAplicar, onFechar }: Props) {
                 const antigo = referencias[b.id];
                 const novo = novas?.[b.id];
                 if (!antigo && !novo) return null;
-                const origem = antigo ?? novo!;
-                const destino = novo ?? antigo!;
+                const origem = pixel(antigo ?? novo!);
+                const destino = pixel(novo ?? antigo!);
                 return (
                   <g key={b.id}>
                     <line
-                      x1={px(origem[0])}
-                      y1={px(origem[1])}
-                      x2={px(destino[0])}
-                      y2={px(destino[1])}
+                      x1={origem.x}
+                      y1={origem.y}
+                      x2={destino.x}
+                      y2={destino.y}
                       stroke="var(--color-texto)"
                       strokeOpacity={0.45}
                       strokeWidth={1.6}
@@ -254,8 +266,8 @@ export function RecenterModal({ snapshot, onAplicar, onFechar }: Props) {
                     />
                     {antigo && (
                       <circle
-                        cx={px(antigo[0])}
-                        cy={px(antigo[1])}
+                        cx={origem.x}
+                        cy={origem.y}
                         r={11}
                         fill={b.cor}
                         fillOpacity={0.22}
@@ -265,8 +277,8 @@ export function RecenterModal({ snapshot, onAplicar, onFechar }: Props) {
                     )}
                     {novo && (
                       <circle
-                        cx={px(novo[0])}
-                        cy={px(novo[1])}
+                        cx={destino.x}
+                        cy={destino.y}
                         r={b.id === alvo ? 15 : 12}
                         fill={b.cor}
                         fillOpacity={0.95}
@@ -279,8 +291,8 @@ export function RecenterModal({ snapshot, onAplicar, onFechar }: Props) {
                       />
                     )}
                     <text
-                      x={px(destino[0])}
-                      y={px(destino[1]) + 26}
+                      x={Math.min(TAM - 28, Math.max(28, destino.x))}
+                      y={Math.min(TAM - 4, destino.y + 26)}
                       textAnchor="middle"
                       className="fill-apoio text-[10px]"
                     >
@@ -290,29 +302,29 @@ export function RecenterModal({ snapshot, onAplicar, onFechar }: Props) {
                 );
               })}
 
-              {medido && (
+              {medidoPixel && (
                 <g>
                   <circle
-                    cx={px(medido.x)}
-                    cy={px(medido.y)}
+                    cx={medidoPixel.x}
+                    cy={medidoPixel.y}
                     r={9}
                     fill="none"
                     stroke="var(--color-atencao)"
                     strokeWidth={2}
                   />
                   <line
-                    x1={px(medido.x) - 12}
-                    y1={px(medido.y)}
-                    x2={px(medido.x) + 12}
-                    y2={px(medido.y)}
+                    x1={medidoPixel.x - 12}
+                    y1={medidoPixel.y}
+                    x2={medidoPixel.x + 12}
+                    y2={medidoPixel.y}
                     stroke="var(--color-atencao)"
                     strokeWidth={1.5}
                   />
                   <line
-                    x1={px(medido.x)}
-                    y1={px(medido.y) - 12}
-                    x2={px(medido.x)}
-                    y2={px(medido.y) + 12}
+                    x1={medidoPixel.x}
+                    y1={medidoPixel.y - 12}
+                    x2={medidoPixel.x}
+                    y2={medidoPixel.y + 12}
                     stroke="var(--color-atencao)"
                     strokeWidth={1.5}
                   />

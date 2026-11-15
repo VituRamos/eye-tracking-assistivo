@@ -27,8 +27,10 @@ from core.gaze_engine import (
     distancia_rosto_normalizada,
     divergencia_dentro_do_limite,
     divergencia_entre_olhos,
+    extrair_angulos_da_matriz,
     extrair_yaw_da_matriz,
     olho_fechado,
+    pose_dentro_dos_limites,
 )
 
 
@@ -159,6 +161,56 @@ class TestCompensacaoPose:
     def test_compensar_ratio_com_yaw_positivo_desloca_valor(self):
         ratio_ajustado = compensar_ratio_por_yaw(0.5, yaw_graus=20.0, sensibilidade=0.004)
         assert ratio_ajustado < 0.5
+
+    @staticmethod
+    def _rotacao(eixo: str, graus: float) -> np.ndarray:
+        rad = np.radians(graus)
+        c, s = np.cos(rad), np.sin(rad)
+        if eixo == "y":
+            return np.array([[c, 0, s, 0], [0, 1, 0, 0], [-s, 0, c, 0], [0, 0, 0, 1]])
+        if eixo == "x":
+            return np.array([[1, 0, 0, 0], [0, c, -s, 0], [0, s, c, 0], [0, 0, 0, 1]])
+        return np.array([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+
+    def test_matriz_identidade_devolve_tres_angulos_zero(self):
+        yaw, pitch, roll = extrair_angulos_da_matriz(np.eye(4))
+        assert yaw == pytest.approx(0.0, abs=1e-6)
+        assert pitch == pytest.approx(0.0, abs=1e-6)
+        assert roll == pytest.approx(0.0, abs=1e-6)
+
+    @pytest.mark.parametrize("angulo", [-25, -10, 0, 10, 25])
+    def test_yaw_sintetico(self, angulo):
+        yaw, pitch, roll = extrair_angulos_da_matriz(self._rotacao("y", angulo))
+        assert yaw == pytest.approx(angulo, abs=1e-6)
+        assert pitch == pytest.approx(0.0, abs=1e-6)
+        assert roll == pytest.approx(0.0, abs=1e-6)
+
+    @pytest.mark.parametrize("angulo", [-20, -8, 8, 20])
+    def test_pitch_sintetico(self, angulo):
+        yaw, pitch, roll = extrair_angulos_da_matriz(self._rotacao("x", angulo))
+        assert yaw == pytest.approx(0.0, abs=1e-6)
+        assert pitch == pytest.approx(angulo, abs=1e-6)
+        assert roll == pytest.approx(0.0, abs=1e-6)
+
+    @pytest.mark.parametrize("angulo", [-30, -12, 12, 30])
+    def test_roll_sintetico(self, angulo):
+        yaw, pitch, roll = extrair_angulos_da_matriz(self._rotacao("z", angulo))
+        assert yaw == pytest.approx(0.0, abs=1e-6)
+        assert pitch == pytest.approx(0.0, abs=1e-6)
+        assert roll == pytest.approx(angulo, abs=1e-6)
+
+    def test_pose_dentro_dos_limites_aceita_pose_pequena(self):
+        assert pose_dentro_dos_limites(10, 8, 12, 25, 25, 30) is True
+
+    @pytest.mark.parametrize(
+        ("yaw", "pitch", "roll"),
+        [(30, 0, 0), (0, 30, 0), (0, 0, 40), (-30, 0, 0), (0, -30, 0), (0, 0, -40)],
+    )
+    def test_pose_fora_dos_limites_rejeita(self, yaw, pitch, roll):
+        assert pose_dentro_dos_limites(yaw, pitch, roll, 25, 25, 30) is False
+
+    def test_limite_zero_desliga_a_checagem_do_eixo(self):
+        assert pose_dentro_dos_limites(80, 80, 80, 0, 0, 0) is True
 
 
 # =====================================================================

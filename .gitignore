@@ -14,10 +14,16 @@ env/
 # Build / distribuicao
 build/
 dist/
-entrega/
 *.spec.bak
 diagnostico.txt
 diagnostico_camera.txt
+
+# Pasta de entrega: ignorada, exceto o executavel portatil, que e
+# versionado de proposito para distribuicao direta pelo GitHub.
+# (O sidecar eye-core e a pasta com centenas de MB nao entram no repositorio.)
+entrega/**
+!entrega/Prancha Assistiva/
+!entrega/Prancha Assistiva/Prancha Assistiva.exe
 
 # Dados de runtime
 logs/*.log

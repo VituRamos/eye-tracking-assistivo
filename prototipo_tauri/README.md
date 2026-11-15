@@ -12,7 +12,7 @@ telemetria, portas de rede ou envio de imagens para fora da máquina.
 | Tela | O que faz |
 | --- | --- |
 | Menu | perfil ativo, status de câmera e calibração, ação Prancha |
-| Prancha | 4 cartões (OI, COMER, BEBER, BANHEIRO) escolhidos pelo olhar |
+| Prancha | 4 cartões (OI, COMER, BEBER, BANHEIRO) escolhidos pelo olhar, com o ponto do olhar e o anel do dwell |
 | SIM / NÃO | modo legado com duas metades e confirmação por dwell |
 | Perfis | lista, seleção por número e criação de perfil |
 | Novo perfil | nome do perfil, seguido da calibração da prancha |
@@ -46,6 +46,11 @@ telemetria, portas de rede ou envio de imagens para fora da máquina.
 
 Na tela **Novo perfil**, o campo de texto aceita letras, números, `_` e `-`
 até 20 caracteres. `ENTER` confirma e inicia a calibração; `ESC` cancela.
+
+Na **Prancha**, uma bolinha indica onde a pessoa está olhando e um anel ao
+redor dela se fecha até a confirmação (dwell). Na **calibração da prancha**
+o anel acompanha a coleta do cartão; o ponto do olhar usa as referências da
+calibração anterior para se posicionar sobre os cartões.
 
 ## Como funciona
 

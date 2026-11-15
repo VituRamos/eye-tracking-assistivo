@@ -148,26 +148,70 @@ def olho_fechado(ear: float, limiar: float = 0.15) -> bool:
 # =====================================================================
 # Compensação de pose de cabeça
 # =====================================================================
-def extrair_yaw_da_matriz(matriz_transformacao: np.ndarray) -> float:
+def extrair_angulos_da_matriz(
+    matriz_transformacao: np.ndarray,
+) -> tuple[float, float, float]:
     """
-    Extrai o ângulo de yaw (rotação esquerda/direita da cabeça) em graus,
-    a partir da matriz de transformação facial 4x4 que o MediaPipe retorna
-    quando `output_facial_transformation_matrixes=True`.
+    Extrai (yaw, pitch, roll) em graus da matriz de transformação facial
+    4x4 que o MediaPipe retorna com
+    ``output_facial_transformation_matrixes=True``.
 
-    Usado para não confundir uma cabeça levemente virada com um
-    movimento real dos olhos.
+    A decomposição é a mesma usada em robótica (convenção ZYX):
+      * yaw  = giro da cabeça para os lados;
+      * pitch = cabeça para cima/baixo;
+      * roll  = inclinação lateral (orelha na direção do ombro).
+
+    Uma cabeça inclinada muda o ratio da íris mesmo com o olhar parado --
+    sobretudo o ``ratio_y`` usado na prancha. Ter os três ângulos permite
+    descartar o quadro em vez de confiar num olhar distorcido.
     """
-    r = matriz_transformacao[:3, :3]
-    yaw_rad = np.arctan2(-r[2, 0], np.sqrt(r[2, 1] ** 2 + r[2, 2] ** 2))
-    return float(np.degrees(yaw_rad))
+    r = np.asarray(matriz_transformacao)[:3, :3]
+    yaw = math.atan2(-float(r[2, 0]), math.sqrt(float(r[2, 1]) ** 2 + float(r[2, 2]) ** 2))
+    pitch = math.atan2(float(r[2, 1]), float(r[2, 2]))
+    roll = math.atan2(float(r[1, 0]), float(r[0, 0]))
+    return (
+        float(math.degrees(yaw)),
+        float(math.degrees(pitch)),
+        float(math.degrees(roll)),
+    )
+
+
+def extrair_yaw_da_matriz(matriz_transformacao: np.ndarray) -> float:
+    """Compatibilidade: devolve só o yaw (graus) da matriz facial."""
+    return extrair_angulos_da_matriz(matriz_transformacao)[0]
+
+
+def pose_dentro_dos_limites(
+    yaw_graus: float,
+    pitch_graus: float,
+    roll_graus: float,
+    max_yaw: float,
+    max_pitch: float,
+    max_roll: float,
+) -> bool:
+    """
+    True quando os três ângulos estão dentro dos limites configurados.
+
+    Limites iguais a zero ou negativos são ignorados para aquele eixo, o
+    que permite desligar a checagem de um eixo sem mudar o código.
+    """
+    if max_yaw > 0 and abs(float(yaw_graus)) > max_yaw:
+        return False
+    if max_pitch > 0 and abs(float(pitch_graus)) > max_pitch:
+        return False
+    return max_roll <= 0 or abs(float(roll_graus)) <= max_roll
 
 
 def compensar_ratio_por_yaw(ratio_x: float, yaw_graus: float, sensibilidade: float = 0.004) -> float:
     """
     Ajusta o ratio_x horizontal subtraindo uma fração proporcional ao
-    ângulo de yaw da cabeça. `sensibilidade` foi escolhida de forma
-    conservadora (efeito pequeno por grau) -- calibre empiricamente
-    observando o gráfico temporal ao girar a cabeça sem mover os olhos.
+    ângulo de yaw da cabeça.
+
+    ATENÇÃO: é uma correção empírica e opcional. O ratio já é medido
+    dentro da largura do olho, o que remove boa parte do efeito da
+    rotação. Por isso o padrão do aplicativo é NÃO compensar
+    (``deteccao.compensar_yaw: false``); se ativar, recalibre a prancha
+    com a compensação ligada para que os dois lados usem a mesma régua.
     """
     correcao = yaw_graus * sensibilidade
     return min(max(ratio_x - correcao, 0.0), 1.0)

@@ -54,9 +54,6 @@ class AppState:
     # Confirmação alternativa por piscada
     contador_piscada: int = 0
 
-    # Robustez: quantos frames seguidos sem detectar rosto
-    contador_sem_rosto: int = 0
-
     # Perfil / calibração ativa
     perfil_ativo: str | None = None
     media_esquerda_calibrada: float = 0.35

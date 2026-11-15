@@ -29,6 +29,24 @@ export default function App() {
   const timerToast = useRef<number | undefined>(undefined);
   const ultimoAviso = useRef<string | null>(null);
 
+  // Última calibração completa da prancha. A calibração em andamento
+  // apaga as referências no motor, mas o ponto do olhar ainda pode usar
+  // as antigas para mostrar onde a pessoa está olhando.
+  const refsAnteriores = useRef<{
+    perfil: string | null;
+    refs: Record<string, [number, number]>;
+  } | null>(null);
+  const refsPrancha = snapshot.pranchaCalib.referencias;
+  useEffect(() => {
+    if (snapshot.pranchaCalibrada && Object.keys(refsPrancha).length === 4) {
+      refsAnteriores.current = { perfil: snapshot.perfil, refs: refsPrancha };
+    }
+  }, [snapshot.pranchaCalibrada, refsPrancha, snapshot.perfil]);
+  const referenciasAntigas =
+    refsAnteriores.current?.perfil === snapshot.perfil
+      ? refsAnteriores.current.refs
+      : undefined;
+
   const mostrarToast = useCallback((texto: string) => {
     setToast(texto);
     if (timerToast.current) window.clearTimeout(timerToast.current);
@@ -329,6 +347,7 @@ export default function App() {
       conteudo = (
         <BoardCalibrationScreen
           snapshot={snapshot}
+          referenciasAntigas={referenciasAntigas}
           onIniciar={() => enviar({ tipo: "iniciar_coleta" })}
           onVoltar={() => enviar({ tipo: "voltar" })}
         />
@@ -382,7 +401,9 @@ export default function App() {
   const emDeteccao =
     snapshot.tela === "PRANCHA_ATIVO" ||
     snapshot.tela === "ATIVO" ||
+    snapshot.tela === "PRANCHA_CALIB_PREPARAR" ||
     snapshot.tela === "PRANCHA_CALIB_COLETANDO" ||
+    snapshot.tela === "CALIB_PREPARAR" ||
     snapshot.tela === "CALIB_COLETANDO";
   const aviso =
     emDeteccao && !snapshot.semSinal

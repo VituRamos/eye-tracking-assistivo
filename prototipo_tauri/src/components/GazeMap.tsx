@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { BLOCOS, type SnapshotApp } from "../types";
+import { criarProjecaoMapa } from "./mapaOlhar";
 
 /**
  * Mapa do olhar do Modo Cuidador.
  *
- * Mostra, em espaço de ratio (0..1), os alvos calibrados da prancha, a
- * trilha recente do olhar e a posição atual. Também resume a divergência
- * entre os olhos -- quando ela passa do limite configurado, o quadro é
- * ignorado pelo motor e o painel avisa.
+ * Mostra os alvos calibrados nos quadrantes reais da prancha, a trilha
+ * recente do olhar e a posição atual. Como a calibração guarda o olhar em
+ * coordenadas de ratio da íris (comprimidas em torno do centro), o ponto
+ * do olhar passa pela projeção de `mapaOlhar` antes de ser desenhado --
+ * caso contrário os quatro cartões ficam empilhados no meio.
+ *
+ * Também resume a divergência entre os olhos -- quando ela passa do
+ * limite configurado, o quadro é ignorado pelo motor e o painel avisa.
  */
 
 const TAM = 200;
@@ -26,14 +31,12 @@ interface Alvo extends Ponto {
   cor: string;
   calibrado: boolean;
   distancia: number;
+  /** Centro do cartão no layout da prancha (sempre nos quadrantes). */
+  cartao: Ponto;
 }
 
 function limitar(valor: number): number {
   return Math.min(1, Math.max(0, valor));
-}
-
-function px(valor: number): number {
-  return MARGEM + limitar(valor) * UTIL;
 }
 
 function porcentagem(valor: number): string {
@@ -81,6 +84,8 @@ export function GazeMap({ snapshot }: { snapshot: SnapshotApp }) {
     const referencias = snapshot.pranchaCalib.referencias;
     return BLOCOS.map((bloco) => {
       const referencia = referencias[bloco.id];
+      // x/y seguem em ratio bruto: é o espaço que o motor usa para medir
+      // a distância e decidir o cartão mais próximo.
       const x = referencia ? referencia[0] : bloco.ratio.x;
       const y = referencia ? referencia[1] : bloco.ratio.y;
       return {
@@ -89,6 +94,7 @@ export function GazeMap({ snapshot }: { snapshot: SnapshotApp }) {
         cor: bloco.cor,
         x,
         y,
+        cartao: bloco.ratio,
         calibrado: Boolean(referencia),
         distancia: Math.hypot(gaze.x - x, gaze.y - y),
       };
@@ -154,6 +160,19 @@ export function GazeMap({ snapshot }: { snapshot: SnapshotApp }) {
       ? "var(--color-confirmado)"
       : "var(--color-atencao)";
 
+  // Cartões sempre nos quadrantes da prancha; o olhar é projetado pela
+  // calibração do usuário para cair no quadrante correspondente.
+  const projecao = useMemo(
+    () => criarProjecaoMapa(snapshot.pranchaCalib.referencias),
+    [snapshot.pranchaCalib.referencias],
+  );
+  const paraPixel = (valor: number) => MARGEM + limitar(valor) * UTIL;
+  const pixelOlhar = (rawX: number, rawY: number) => {
+    const ponto = projecao.projetar(rawX, rawY);
+    return { x: paraPixel(ponto.x), y: paraPixel(ponto.y) };
+  };
+  const olharPixel = gaze.valido ? pixelOlhar(gaze.x, gaze.y) : null;
+
   return (
     <section className="absolute left-[652px] top-[386px] h-[252px] w-[572px] rounded-[20px] border border-borda bg-superficie px-[24px] py-[18px]">
       <div className="flex items-center justify-between">
@@ -203,8 +222,8 @@ export function GazeMap({ snapshot }: { snapshot: SnapshotApp }) {
           {alvos.map((alvo) => (
             <circle
               key={alvo.id}
-              cx={px(alvo.x)}
-              cy={px(alvo.y)}
+              cx={paraPixel(alvo.cartao.x)}
+              cy={paraPixel(alvo.cartao.y)}
               r={alvo.id === maisProximo?.id ? 16 : 13}
               fill={alvo.cor}
               fillOpacity={alvo.calibrado ? 0.9 : 0.35}
@@ -229,23 +248,26 @@ export function GazeMap({ snapshot }: { snapshot: SnapshotApp }) {
               strokeLinejoin="round"
               strokeLinecap="round"
               points={trilha
-                .map((ponto) => `${px(ponto.x).toFixed(1)},${px(ponto.y).toFixed(1)}`)
+                .map((ponto) => {
+                  const q = pixelOlhar(ponto.x, ponto.y);
+                  return `${q.x.toFixed(1)},${q.y.toFixed(1)}`;
+                })
                 .join(" ")}
             />
           )}
 
-          {gaze.valido && (
+          {gaze.valido && olharPixel && (
             <>
               <circle
-                cx={px(gaze.x)}
-                cy={px(gaze.y)}
+                cx={olharPixel.x}
+                cy={olharPixel.y}
                 r={10}
                 fill={corPonto}
                 fillOpacity={0.2}
               />
               <circle
-                cx={px(gaze.x)}
-                cy={px(gaze.y)}
+                cx={olharPixel.x}
+                cy={olharPixel.y}
                 r={4.5}
                 fill={corPonto}
                 stroke="var(--color-superficie)"

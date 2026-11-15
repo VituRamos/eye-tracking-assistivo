@@ -6,6 +6,7 @@ import {
   type BlocoPrancha,
   type SnapshotApp,
 } from "../types";
+import { OlharCursor, type CentroCartao } from "./OlharCursor";
 import { Pictograma } from "./Pictograma";
 import { ScreenHeader } from "./ScreenHeader";
 import { StatusPill } from "./StatusPill";
@@ -16,9 +17,31 @@ interface Props {
   onPointer?: (id: BlocoId | null) => void;
 }
 
+const GRADE_ESQ = 56;
+const GRADE_TOPO = 126;
+const GRADE_LARGURA = 1168;
+const GRADE_ALTURA = 550;
+const VAO = 22;
+const CELULA_L = (GRADE_LARGURA - VAO) / 2;
+const CELULA_A = (GRADE_ALTURA - VAO) / 2;
+
+function centroCartao(coluna: number, linha: number): CentroCartao {
+  return {
+    x: GRADE_ESQ + coluna * (CELULA_L + VAO) + CELULA_L / 2,
+    y: GRADE_TOPO + linha * (CELULA_A + VAO) + CELULA_A / 2,
+  };
+}
+
+/** Centros reais dos cartões no palco, usados pelo ponto do olhar. */
+const CENTROS: Record<BlocoId, CentroCartao> = {
+  oi: centroCartao(0, 0),
+  comer: centroCartao(1, 0),
+  beber: centroCartao(0, 1),
+  banheiro: centroCartao(1, 1),
+};
+
 export function BoardScreen({ snapshot, onVoltar, onPointer }: Props) {
-  const { confirmado, foco, progresso } = snapshot;
-  const instrucao = confirmado
+  const { confirmado, foco, progresso } = snapshot;  const instrucao = confirmado
     ? null
     : foco
       ? `Olhando para ${rotulo(foco)}.`
@@ -96,6 +119,11 @@ export function BoardScreen({ snapshot, onVoltar, onPointer }: Props) {
       <p className="absolute left-[56px] top-[700px] -translate-y-1/2 text-[15px] text-apoio">
         {rodapeEsquerda}
       </p>
+      <OlharCursor
+        snapshot={snapshot}
+        centros={CENTROS}
+        progresso={foco ? progresso : 0}
+      />
       <button
         onClick={onVoltar}
         className="absolute right-[56px] top-[700px] -translate-y-1/2 rounded-lg px-2 py-1 text-[15px] text-apoio transition hover:bg-neutro"

@@ -451,6 +451,8 @@ def main(argv: list[str] | None = None) -> int:
     pos_y = altura - altura_grafico - round(40 * escala_tela)
     timestamp_ms = 0
     ultimo_aviso_camera = time.monotonic()
+    sem_rosto_desde: float | None = None
+    modelo_sem_iris_avisado = False
 
     # Canvas nativo da interface. As telas sempre pintam o quadro inteiro;
     # ele é reaproveitado para não alocar 6 MB a cada iteração.
@@ -502,16 +504,28 @@ def main(argv: list[str] | None = None) -> int:
             if rodar_deteccao:
                 rgb = cv2.cvtColor(frame_proc, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                # Contador monotônico: time.time() no Windows tem granularidade
-                # de ~15ms e pode repetir o mesmo milissegundo em dois frames,
-                # fazendo o MediaPipe lançar exceção.
-                timestamp_ms += 1
+                # Milissegundos reais e estritamente crescentes: o MediaPipe
+                # usa o timestamp para o rastreamento no modo VIDEO. O +1
+                # por frame antigo fazia o grafo achar que rodava a 1000 fps.
+                agora_ms = int(time.monotonic() * 1000)
+                if agora_ms <= timestamp_ms:
+                    agora_ms = timestamp_ms + 1
+                timestamp_ms = agora_ms
                 resultado = detector.detect_for_video(mp_image, timestamp_ms)
 
-                if resultado.face_landmarks:
+                landmarks = resultado.face_landmarks[0] if resultado.face_landmarks else None
+                if landmarks is not None and len(landmarks) < 478:
+                    if not modelo_sem_iris_avisado:
+                        logger_raiz.error(
+                            "Modelo facial com %d pontos (esperado >= 478, com íris). "
+                            "Atualize models/face_landmarker.task.",
+                            len(landmarks),
+                        )
+                        modelo_sem_iris_avisado = True
+                    landmarks = None
+
+                if landmarks is not None:
                     rosto_detectado = True
-                    app.contador_sem_rosto = 0
-                    landmarks = resultado.face_landmarks[0]
 
                     ratio_esq_bruto = ge.calcular_ratio_iris_x(
                         landmarks, ge.OLHO_ESQUERDO_CANTOS, ge.IRIS_ESQUERDA,
@@ -520,12 +534,26 @@ def main(argv: list[str] | None = None) -> int:
                         landmarks, ge.OLHO_DIREITO_CANTOS, ge.IRIS_DIREITA,
                         largura_proc, altura_proc)
 
-                    # Compensação de pose de cabeça, se a matriz vier disponível
+                    # Pose de cabeça: yaw, pitch e roll. A compensação do
+                    # ratio é opcional (desligada por padrão) para não somar
+                    # uma correção à normalização que o ratio já faz.
                     if resultado.facial_transformation_matrixes:
-                        yaw = ge.extrair_yaw_da_matriz(resultado.facial_transformation_matrixes[0])
-                        pose_confiavel = abs(yaw) <= calib_cfg["max_yaw_graus"]
-                        ratio_esq_bruto = ge.compensar_ratio_por_yaw(ratio_esq_bruto, yaw)
-                        ratio_dir_bruto = ge.compensar_ratio_por_yaw(ratio_dir_bruto, yaw)
+                        yaw, pitch, roll = ge.extrair_angulos_da_matriz(
+                            resultado.facial_transformation_matrixes[0]
+                        )
+                        pose_confiavel = ge.pose_dentro_dos_limites(
+                            yaw, pitch, roll,
+                            calib_cfg["max_yaw_graus"],
+                            calib_cfg["max_pitch_graus"],
+                            calib_cfg["max_roll_graus"],
+                        )
+                        if det_cfg["compensar_yaw"]:
+                            ratio_esq_bruto = ge.compensar_ratio_por_yaw(
+                                ratio_esq_bruto, yaw, det_cfg["yaw_sensibilidade"]
+                            )
+                            ratio_dir_bruto = ge.compensar_ratio_por_yaw(
+                                ratio_dir_bruto, yaw, det_cfg["yaw_sensibilidade"]
+                            )
 
                     ratio_esq = suavizador_esq.atualizar(ratio_esq_bruto)
                     ratio_dir = suavizador_dir.atualizar(ratio_dir_bruto)
@@ -576,13 +604,16 @@ def main(argv: list[str] | None = None) -> int:
                         else:
                             app.amostras_ignoradas += 1
 
-                if not rosto_detectado:
-                    app.contador_sem_rosto += 1
-                    if (
-                        frame_recebido
-                        and app.contador_sem_rosto > det_cfg["limite_frames_sem_rosto"]
-                    ):
-                        avisar_sem_rosto = True
+                if rosto_detectado or not frame_recebido:
+                    sem_rosto_desde = None
+                elif sem_rosto_desde is None:
+                    sem_rosto_desde = agora
+                elif (agora - sem_rosto_desde) * 1000 >= det_cfg["sem_rosto_ms"]:
+                    avisar_sem_rosto = True
+            else:
+                # Fora das telas de detecção o relógio do aviso é zerado,
+                # para não disparar na hora ao entrar na prancha.
+                sem_rosto_desde = None
 
             # ---------------------------------------------------------
             # Decisão de seleção (sempre atualizada no modo ativo, mesmo

@@ -21,6 +21,11 @@ class TestMergeComPadroes:
         assert cfg["deteccao"]["dwell_ms"] == 700
         assert cfg["deteccao"]["piscada"]["limiar_ear"] == 0.15
         assert cfg["deteccao"]["divergencia_max"] == 0.25
+        assert cfg["deteccao"]["sem_rosto_ms"] == 2000
+        assert cfg["deteccao"]["compensar_yaw"] is False
+        assert cfg["deteccao"]["confianca_minima"] == 0.5
+        assert cfg["calibracao"]["max_pitch_graus"] == 25.0
+        assert cfg["calibracao"]["max_roll_graus"] == 30.0
         assert cfg["camera"]["largura"] == 1280
 
     def test_yaml_aninhado_parcial_preserva_o_resto(self, tmp_path):
@@ -31,6 +36,23 @@ class TestMergeComPadroes:
         cfg = carregar_config(caminho)
         assert cfg["deteccao"]["piscada"]["habilitada"] is False
         assert cfg["deteccao"]["piscada"]["piscada_ms"] == 350
+
+    def test_limite_em_frames_e_convertido_para_ms(self, tmp_path):
+        caminho = escrever_yaml(
+            tmp_path,
+            "deteccao:\n  limite_frames_sem_rosto: 60\n",
+        )
+        cfg = carregar_config(caminho)
+        assert cfg["deteccao"]["sem_rosto_ms"] == 2000
+        assert "limite_frames_sem_rosto" not in cfg["deteccao"]
+
+    def test_sem_rosto_ms_tem_prioridade_sobre_a_chave_antiga(self, tmp_path):
+        caminho = escrever_yaml(
+            tmp_path,
+            "deteccao:\n  limite_frames_sem_rosto: 60\n  sem_rosto_ms: 3500\n",
+        )
+        cfg = carregar_config(caminho)
+        assert cfg["deteccao"]["sem_rosto_ms"] == 3500
 
 
 class TestFallback:

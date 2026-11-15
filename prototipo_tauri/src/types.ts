@@ -95,8 +95,11 @@ export interface ConfigResumo {
     exibicaoConfirmacaoMs: number;
     alphaEma: number;
     tamanhoHistoricoGrafico: number;
-    limiteFramesSemRosto: number;
+    semRostoMs: number;
     divergenciaMax: number;
+    compensarYaw: boolean;
+    yawSensibilidade: number;
+    confiancaMinima: number;
     distanciaHabilitada: boolean;
     distanciaLongeAbaixo: number;
     distanciaPertoAcima: number;
@@ -111,6 +114,8 @@ export interface ConfigResumo {
     duracaoMs: number;
     minAmostras: number;
     maxYawGraus: number;
+    maxPitchGraus: number;
+    maxRollGraus: number;
     diferencaMinima: number;
   };
   prancha: {
@@ -194,8 +199,11 @@ export const CONFIG_PADRAO: ConfigResumo = {
     exibicaoConfirmacaoMs: 1500,
     alphaEma: 0.35,
     tamanhoHistoricoGrafico: 200,
-    limiteFramesSemRosto: 60,
+    semRostoMs: 2000,
     divergenciaMax: 0.25,
+    compensarYaw: false,
+    yawSensibilidade: 0.004,
+    confiancaMinima: 0.5,
     distanciaHabilitada: true,
     distanciaLongeAbaixo: 0.11,
     distanciaPertoAcima: 0.34,
@@ -210,6 +218,8 @@ export const CONFIG_PADRAO: ConfigResumo = {
     duracaoMs: 3000,
     minAmostras: 30,
     maxYawGraus: 25,
+    maxPitchGraus: 25,
+    maxRollGraus: 30,
     diferencaMinima: 0.03,
   },
   prancha: { distanciaMinimaBoa: 0.02, raioMax: 0.55 },

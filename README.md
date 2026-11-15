@@ -219,8 +219,9 @@ Cada fase (SIM e NÃO) coleta por **3 segundos** e exige no mínimo
 **30 amostras válidas**:
 
 - frames com olhos fechados (EAR abaixo do limiar) são descartados;
-- frames com a cabeça virada além de `calibracao.max_yaw_graus` são
-  descartados;
+- frames com a cabeça fora dos limites de yaw, pitch ou roll
+  (`calibracao.max_yaw_graus`, `max_pitch_graus`, `max_roll_graus`)
+  são descartados;
 - a referência final é a **mediana** das amostras (resistente a picos);
 - se a separação entre SIM e NÃO ficar abaixo de
   `calibracao.diferenca_minima`, a calibração é considerada **fraca**:
@@ -251,9 +252,15 @@ média e classificar cada olho isoladamente.
 | `deteccao.piscada.habilitada` | true | confirmação por piscada |
 | `deteccao.piscada.piscada_ms` | 350 | tempo de olho fechado |
 | `deteccao.divergencia_max` | 0.25 | diferença máxima entre os olhos; acima disso o quadro é ignorado |
+| `deteccao.sem_rosto_ms` | 2000 | tempo contínuo sem rosto antes de pedir para reposicionar |
+| `deteccao.confianca_minima` | 0.5 | rigor do detector de rosto (0..1) |
+| `deteccao.compensar_yaw` | false | compensação experimental da cabeça (exige recalibrar a prancha) |
+| `deteccao.yaw_sensibilidade` | 0.004 | deslocamento do olhar por grau, se a compensação estiver ligada |
 | `calibracao.duracao_ms` | 3000 | duração de cada fase |
 | `calibracao.min_amostras` | 30 | amostras válidas mínimas |
 | `calibracao.max_yaw_graus` | 25 | cabeça virada demais é ignorada |
+| `calibracao.max_pitch_graus` | 25 | cabeça muito para cima/baixo é ignorada |
+| `calibracao.max_roll_graus` | 30 | inclinação lateral excessiva é ignorada |
 | `calibracao.diferenca_minima` | 0.03 | separação mínima SIM/NAO |
 | `prancha.distancia_minima_boa` | 0.02 | separação mínima entre cartões |
 | `prancha.raio_max` | 0.55 | distância máxima até o cartão mais próximo |
@@ -337,6 +344,17 @@ Cobertura atual (**228 testes**):
   desfazer uma vez por sessão.
 - **Mapa do olhar ampliado**: o painel do Modo Cuidador agora também
   mostra o estado da distância do rosto.
+- **Ponto do olhar na prancha**: uma bolinha mostra onde a pessoa está
+  olhando e um anel se fecha até a confirmação por tempo. Na calibração
+  o anel acompanha a coleta; agora o ponto também aparece na tela de
+  preparação, quando a detecção passou a rodar antes do início da coleta.
+- **Detecção mais estável**: aviso de rosto por tempo real
+  (`deteccao.sem_rosto_ms`), limites de pitch e roll além do yaw,
+  timestamp real no MediaPipe, confiança do detector configurável e
+  proteção contra modelo sem pontos de íris.
+- **Compensação de cabeça opcional**: `deteccao.compensar_yaw` vem
+  desligado por padrão; quem ativar deve recalibrar a prancha com a opção
+  ligada.
 
 ## Novo na versão 2.2.3
 
@@ -434,8 +452,10 @@ Cobertura atual (**228 testes**):
 - O executável onefile extrai as dependências a cada abertura; o
   primeiro start pode demorar alguns segundos e alguns antivírus podem
   pedir confirmação.
-- A compensação de pose por yaw é conservadora e deve ser validada com
-  usuários reais; `max_yaw_graus` permite ignorar poses extremas.
+- A compensação de pose por yaw é experimental e fica **desligada por
+  padrão** (`deteccao.compensar_yaw: false`). Se ativada, recalibre a
+  prancha com a opção ligada; `max_yaw_graus`, `max_pitch_graus` e
+  `max_roll_graus` descartam poses extremas.
 - O `ratio_y` é usado na prancha, mas a calibração vertical ainda é
   sensível à posição da câmera; reenquadre o rosto antes de recalibrar.
 

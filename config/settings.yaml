@@ -9,12 +9,25 @@ deteccao:
   exibicao_confirmacao_ms: 1500 # quanto tempo "SELECIONADO" fica na tela
   alpha_ema: 0.35          # 0=muito suave/lento, 1=sem suavização
   tamanho_historico_grafico: 200
-  limite_frames_sem_rosto: 60 # ~2s a 30fps antes de avisar "reposicione o rosto"
+  # Tempo contínuo (ms) sem rosto antes de avisar "reposicione o rosto".
+  # Usa tempo real, então funciona igual em câmeras de 15, 30 ou 60 fps.
+  sem_rosto_ms: 2000
   # Diferença máxima aceitável entre os ratios dos dois olhos. Acima
   # disso o quadro é tratado como inválido (piscada, oclusão, ruído) e
   # não conta para seleção nem para calibração. Aumente para quem tem
   # estrabismo ou olhos que divergem de forma consistente.
   divergencia_max: 0.25
+
+  # Compensação opcional da pose da cabeça no ratio horizontal. Fica
+  # DESLIGADA por padrão: o ratio já é normalizado dentro do olho e a
+  # compensação pode ampliar a deriva entre calibrar e usar. Se ligar,
+  # recalibre a prancha com a opção já ativa.
+  compensar_yaw: false
+  yaw_sensibilidade: 0.004   # deslocamento do ratio por grau de yaw
+
+  # Confiança mínima do detector de rosto (0..1). Aumente em ambientes
+  # com ruído; diminua se o rosto demorar a ser encontrado.
+  confianca_minima: 0.5
 
   # Indicador informativo de distância do rosto até a câmera. Não
   # bloqueia seleção nem calibração: serve para avisar quando o rosto
@@ -38,6 +51,8 @@ calibracao:
   duracao_ms: 3000         # duração de cada fase (ESQUERDA e DIREITA)
   min_amostras: 30         # amostras válidas mínimas por fase
   max_yaw_graus: 25.0      # acima disso, a cabeça está virada demais: ignora
+  max_pitch_graus: 25.0    # cabeça muito para cima/baixo também distorce o ratio_y
+  max_roll_graus: 30.0     # inclinação lateral (orelha no ombro)
   diferenca_minima: 0.03   # abaixo disso, a calibração é considerada fraca
 
 prancha:

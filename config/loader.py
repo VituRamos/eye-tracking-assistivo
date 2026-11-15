@@ -46,6 +46,7 @@ def carregar_config(caminho: str | Path | None = None) -> dict[str, Any]:
         conteudo = yaml.safe_load(caminho.read_text(encoding="utf-8"))
         if not isinstance(conteudo, dict) or not conteudo:
             raise ValueError("Arquivo de configuração vazio ou inválido.")
+        _migrar_chaves_antigas(conteudo)
         cfg = _mesclar_profundo(padrao, conteudo)
         _validar_config(cfg)
         return cfg
@@ -104,6 +105,26 @@ def _mesclar_profundo(base: dict, sobrescrita: dict) -> dict:
     return resultado
 
 
+def _migrar_chaves_antigas(conteudo: dict) -> None:
+    """
+    Converte chaves de versões anteriores do settings.yaml.
+
+    ``deteccao.limite_frames_sem_rosto`` era contado em frames (~30 fps).
+    Agora o aviso de rosto usa tempo real (``sem_rosto_ms``), então o valor
+    antigo é convertido uma única vez para não perder o ajuste do usuário.
+    """
+    det = conteudo.get("deteccao")
+    if not isinstance(det, dict):
+        return
+    if "limite_frames_sem_rosto" not in det:
+        return
+    frames = det.pop("limite_frames_sem_rosto")
+    if "sem_rosto_ms" in det:
+        return
+    if _eh_numero(frames) and frames > 0:
+        det["sem_rosto_ms"] = max(100, round(float(frames) / 30.0 * 1000.0))
+
+
 # =====================================================================
 # Validação
 # =====================================================================
@@ -147,8 +168,13 @@ def validar_config(cfg: dict[str, Any]) -> None:
     _numero(det["alpha_ema"], "deteccao.alpha_ema", minimo=0.0, maximo=1.0,
             minimo_exclusivo=True)
     _inteiro(det["tamanho_historico_grafico"], "deteccao.tamanho_historico_grafico", minimo=20)
-    _inteiro(det["limite_frames_sem_rosto"], "deteccao.limite_frames_sem_rosto", minimo=1)
+    _inteiro(det["sem_rosto_ms"], "deteccao.sem_rosto_ms", minimo=100)
     _numero(det["divergencia_max"], "deteccao.divergencia_max", minimo=0.0,
+            maximo=1.0, minimo_exclusivo=True)
+    _booleano(det["compensar_yaw"], "deteccao.compensar_yaw")
+    _numero(det["yaw_sensibilidade"], "deteccao.yaw_sensibilidade", minimo=0.0,
+            maximo=0.05, minimo_exclusivo=True)
+    _numero(det["confianca_minima"], "deteccao.confianca_minima", minimo=0.0,
             maximo=1.0, minimo_exclusivo=True)
 
     _booleano(det["distancia_habilitada"], "deteccao.distancia_habilitada")
@@ -175,6 +201,8 @@ def validar_config(cfg: dict[str, Any]) -> None:
     _inteiro(calib["duracao_ms"], "calibracao.duracao_ms", minimo=1)
     _inteiro(calib["min_amostras"], "calibracao.min_amostras", minimo=1)
     _numero(calib["max_yaw_graus"], "calibracao.max_yaw_graus", minimo=0.0)
+    _numero(calib["max_pitch_graus"], "calibracao.max_pitch_graus", minimo=0.0)
+    _numero(calib["max_roll_graus"], "calibracao.max_roll_graus", minimo=0.0)
     _numero(calib["diferenca_minima"], "calibracao.diferenca_minima", minimo=0.0)
 
     prancha = cfg["prancha"]
@@ -243,8 +271,11 @@ def _config_padrao() -> dict[str, Any]:
             "exibicao_confirmacao_ms": 1500,
             "alpha_ema": 0.35,
             "tamanho_historico_grafico": 200,
-            "limite_frames_sem_rosto": 60,
+            "sem_rosto_ms": 2000,
             "divergencia_max": 0.25,
+            "compensar_yaw": False,
+            "yaw_sensibilidade": 0.004,
+            "confianca_minima": 0.5,
             "distancia_habilitada": True,
             "distancia_longe_abaixo": 0.11,
             "distancia_perto_acima": 0.34,
@@ -261,6 +292,8 @@ def _config_padrao() -> dict[str, Any]:
             "duracao_ms": 3000,
             "min_amostras": 30,
             "max_yaw_graus": 25.0,
+            "max_pitch_graus": 25.0,
+            "max_roll_graus": 30.0,
             "diferenca_minima": 0.03,
         },
         "prancha": {

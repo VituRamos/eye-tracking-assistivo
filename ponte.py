@@ -57,6 +57,31 @@ ALTURA_PROJETO = 720
 logger = logging.getLogger("eyetracking.ponte")
 
 
+# Estados em que o detector realmente roda. Inclui as telas de preparação
+# para que o ponto do olhar e os avisos de rosto/pose funcionem antes de a
+# coleta começar (no motor real o detector é a única fonte desses dados).
+ESTADOS_COM_DETECCAO = (
+    EstadoApp.CALIB_PREPARAR,
+    EstadoApp.CALIB_COLETANDO,
+    EstadoApp.ATIVO,
+    EstadoApp.PRANCHA_CALIB_PREPARAR,
+    EstadoApp.PRANCHA_CALIB_COLETANDO,
+    EstadoApp.PRANCHA_ATIVO,
+    EstadoApp.MODO_CUIDADOR,
+)
+
+# O aviso "Olhe para a tela" só faz sentido nas telas de uso/calibração;
+# no Modo Cuidador o painel precisa continuar legível.
+ESTADOS_AVISO_CABECA = (
+    EstadoApp.CALIB_PREPARAR,
+    EstadoApp.CALIB_COLETANDO,
+    EstadoApp.ATIVO,
+    EstadoApp.PRANCHA_CALIB_PREPARAR,
+    EstadoApp.PRANCHA_CALIB_COLETANDO,
+    EstadoApp.PRANCHA_ATIVO,
+)
+
+
 # =====================================================================
 # Protocolo (stdout)
 # =====================================================================
@@ -221,13 +246,34 @@ def aplicar_ajustes_config(cfg: dict, ajustes: dict) -> dict:
             d["tamanho_historico_grafico"] = _conv_int(
                 det["tamanhoHistoricoGrafico"], "deteccao.tamanhoHistoricoGrafico"
             )
-        if "limiteFramesSemRosto" in det:
-            d["limite_frames_sem_rosto"] = _conv_int(
-                det["limiteFramesSemRosto"], "deteccao.limiteFramesSemRosto"
+        if "semRostoMs" in det:
+            d["sem_rosto_ms"] = _conv_int(
+                det["semRostoMs"], "deteccao.semRostoMs"
+            )
+        elif "limiteFramesSemRosto" in det:
+            # Compatibilidade com interfaces antigas: converte frames (~30
+            # fps) para milissegundos, que é a unidade atual.
+            d["sem_rosto_ms"] = max(
+                100,
+                round(_conv_int(
+                    det["limiteFramesSemRosto"], "deteccao.limiteFramesSemRosto"
+                ) / 30.0 * 1000.0),
             )
         if "divergenciaMax" in det:
             d["divergencia_max"] = _conv_float(
                 det["divergenciaMax"], "deteccao.divergenciaMax"
+            )
+        if "compensarYaw" in det:
+            d["compensar_yaw"] = _conv_bool(
+                det["compensarYaw"], "deteccao.compensarYaw"
+            )
+        if "yawSensibilidade" in det:
+            d["yaw_sensibilidade"] = _conv_float(
+                det["yawSensibilidade"], "deteccao.yawSensibilidade"
+            )
+        if "confiancaMinima" in det:
+            d["confianca_minima"] = _conv_float(
+                det["confiancaMinima"], "deteccao.confiancaMinima"
             )
         if "distanciaHabilitada" in det:
             d["distancia_habilitada"] = _conv_bool(
@@ -275,6 +321,14 @@ def aplicar_ajustes_config(cfg: dict, ajustes: dict) -> dict:
         if "maxYawGraus" in calib:
             c["max_yaw_graus"] = _conv_float(
                 calib["maxYawGraus"], "calibracao.maxYawGraus"
+            )
+        if "maxPitchGraus" in calib:
+            c["max_pitch_graus"] = _conv_float(
+                calib["maxPitchGraus"], "calibracao.maxPitchGraus"
+            )
+        if "maxRollGraus" in calib:
+            c["max_roll_graus"] = _conv_float(
+                calib["maxRollGraus"], "calibracao.maxRollGraus"
             )
         if "diferencaMinima" in calib:
             c["diferenca_minima"] = _conv_float(
@@ -422,6 +476,7 @@ class Motor:
         self.timestamp_ms = 0
         self.ultimo_frame_em: float | None = None
         self._frame_recebido_agora = False
+        self._modelo_sem_iris_avisado = False
         # Fator para normalizar a medida de distância pela largura real do
         # conteúdo (compensa barras pretas em câmeras 4:3).
         self._escala_conteudo = 1.0
@@ -472,6 +527,7 @@ class Motor:
         self.lado_detectado: str | None = None
         self.decisao = DecisaoSelecao()
         self.aviso_sem_rosto = False
+        self._sem_rosto_desde: float | None = None
         self.aviso_cabeca = False
         self._cabeca_ruim_desde: float | None = None
         self._cabeca_boa_desde: float | None = None
@@ -529,7 +585,10 @@ class Motor:
                     modelo_cfg["url"],
                     modelo_cfg.get("sha256_esperado", ""),
                 )
-            self.detector = self._montar_detector(str(caminho_modelo))
+            self.detector = self._montar_detector(
+                str(caminho_modelo),
+                self.cfg["deteccao"]["confianca_minima"],
+            )
         except Exception as e:
             logger.exception("Falha ao carregar o detector.")
             emitir_erro(
@@ -560,7 +619,7 @@ class Motor:
             logger.warning("Iniciando sem imagens da câmera.")
 
     @staticmethod
-    def _montar_detector(caminho_modelo: str):
+    def _montar_detector(caminho_modelo: str, confianca_minima: float = 0.5):
         # O MediaPipe importa matplotlib (para desenho de resultados), mas o
         # aplicativo nunca exibe gráficos. Força um backend headless para
         # não depender de Tk/Qt no Windows empacotado.
@@ -569,19 +628,24 @@ class Motor:
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision as mp_vision
 
+        confianca = min(max(float(confianca_minima), 0.05), 1.0)
         base_options = mp_python.BaseOptions(model_asset_path=caminho_modelo)
         opcoes = mp_vision.FaceLandmarkerOptions(
             base_options=base_options,
             running_mode=mp_vision.RunningMode.VIDEO,
             num_faces=1,
-            min_face_detection_confidence=0.5,
-            min_face_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_face_detection_confidence=confianca,
+            min_face_presence_confidence=confianca,
+            min_tracking_confidence=confianca,
             output_face_blendshapes=False,
             output_facial_transformation_matrixes=True,
         )
         detector = mp_vision.FaceLandmarker.create_from_options(opcoes)
-        logger.info("MediaPipe %s carregado.", mp.__version__)
+        logger.info(
+            "MediaPipe %s carregado (confiança mínima=%.2f).",
+            mp.__version__,
+            confianca,
+        )
         return detector
 
     def _criar_controlador(self) -> ControladorSelecao:
@@ -635,6 +699,19 @@ class Motor:
                 | set(self.prancha_gerenciador.listar_perfis())
             )
         return list(self._perfis_cache)
+
+    def _restaurar_calibracao_salva(self) -> None:
+        """Recarrega do disco a calibração do perfil ativo, se houver."""
+        nome = self.app.perfil_ativo
+        if not nome:
+            return
+        try:
+            dados_sim = self.calibrador.carregar(nome)
+            dados_prancha = self.prancha_gerenciador.carregar(nome)
+        except (ValueError, OSError) as e:
+            logger.warning("Falha ao recarregar a calibração de '%s': %s", nome, e)
+            return
+        self._aplicar_perfil(nome, dados_sim, dados_prancha)
 
     def _aplicar_perfil(self, nome: str, dados_sim: dict | None, dados_prancha: dict | None) -> None:
         self.app.perfil_ativo = nome
@@ -817,10 +894,18 @@ class Motor:
             self.app.transicionar(EstadoApp.SELECIONAR_PERFIL)
             return
 
-        if estado in (EstadoApp.PRANCHA_CALIB_COLETANDO, EstadoApp.CALIB_COLETANDO):
+        if estado in (
+            EstadoApp.PRANCHA_CALIB_COLETANDO,
+            EstadoApp.PRANCHA_CALIB_PREPARAR,
+            EstadoApp.CALIB_COLETANDO,
+            EstadoApp.CALIB_PREPARAR,
+        ):
+            # Sair no meio da coleta não pode apagar a calibração que já
+            # estava salva no perfil: descarta a coleta e recarrega o disco.
             self.app.resetar_prancha()
             self.app.resetar_calibracao()
             self._recentralizacao_anterior = None
+            self._restaurar_calibracao_salva()
         if estado in (EstadoApp.ATIVO, EstadoApp.PRANCHA_ATIVO):
             self.controlador.reset()
             self.app.resetar_selecao()
@@ -1111,21 +1196,33 @@ class Motor:
 
         rgb = cv2.cvtColor(frame_proc, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        self.timestamp_ms += 1
-        resultado = self.detector.detect_for_video(mp_image, self.timestamp_ms)
+        # O MediaPipe espera milissegundos reais e estritamente crescentes
+        # no modo VIDEO. O relógio monotônico evita o grafo achar que roda
+        # a 1000 fps (o antigo +1 por frame) sem repetir valores.
+        timestamp = int(time.monotonic() * 1000)
+        if timestamp <= self.timestamp_ms:
+            timestamp = self.timestamp_ms + 1
+        self.timestamp_ms = timestamp
+        resultado = self.detector.detect_for_video(mp_image, timestamp)
 
         if not resultado.face_landmarks:
-            self.app.contador_sem_rosto += 1
-            self.aviso_sem_rosto = (
-                self._frame_recebido_agora
-                and self.app.contador_sem_rosto > self.cfg["deteccao"]["limite_frames_sem_rosto"]
-            )
             return
 
-        self.aviso_sem_rosto = False
-        self.rosto_detectado = True
-        self.app.contador_sem_rosto = 0
         landmarks = resultado.face_landmarks[0]
+        # Os índices de íris (469..477) exigem o modelo com 478 pontos.
+        # Um modelo antigo/sem íris estouraria IndexError e encerraria o
+        # motor; aqui o quadro é ignorado e o aviso aparece uma única vez.
+        if len(landmarks) < 478:
+            if not self._modelo_sem_iris_avisado:
+                logger.error(
+                    "Modelo facial com %d pontos (esperado >= 478, com íris). "
+                    "Atualize models/face_landmarker.task.",
+                    len(landmarks),
+                )
+                self._modelo_sem_iris_avisado = True
+            return
+
+        self.rosto_detectado = True
 
         ratio_esq_bruto = ge.calcular_ratio_iris_x(
             landmarks,
@@ -1142,18 +1239,34 @@ class Motor:
             ALTURA_PROJETO,
         )
 
+        det_cfg = self.cfg["deteccao"]
+        yaw = pitch = roll = 0.0
         if resultado.facial_transformation_matrixes:
-            yaw = ge.extrair_yaw_da_matriz(resultado.facial_transformation_matrixes[0])
-            self.pose_confiavel = abs(yaw) <= self.calib_cfg["max_yaw_graus"]
-            ratio_esq_bruto = ge.compensar_ratio_por_yaw(ratio_esq_bruto, yaw)
-            ratio_dir_bruto = ge.compensar_ratio_por_yaw(ratio_dir_bruto, yaw)
-        else:
-            yaw = 0.0
+            yaw, pitch, roll = ge.extrair_angulos_da_matriz(
+                resultado.facial_transformation_matrixes[0]
+            )
+            self.pose_confiavel = ge.pose_dentro_dos_limites(
+                yaw,
+                pitch,
+                roll,
+                self.calib_cfg["max_yaw_graus"],
+                self.calib_cfg["max_pitch_graus"],
+                self.calib_cfg["max_roll_graus"],
+            )
+            # Compensação opcional: desligada por padrão para não somar uma
+            # correção à normalização que o ratio já faz dentro do olho.
+            if det_cfg["compensar_yaw"]:
+                sensibilidade = det_cfg["yaw_sensibilidade"]
+                ratio_esq_bruto = ge.compensar_ratio_por_yaw(
+                    ratio_esq_bruto, yaw, sensibilidade
+                )
+                ratio_dir_bruto = ge.compensar_ratio_por_yaw(
+                    ratio_dir_bruto, yaw, sensibilidade
+                )
 
         # Indicador informativo de distância: usa os cantos externos dos
         # olhos e compensa o yaw. Não entra em nenhuma regra de seleção ou
         # calibração -- serve apenas para orientar o cuidador.
-        det_cfg = self.cfg["deteccao"]
         if det_cfg["distancia_habilitada"] and self.pose_confiavel:
             medida = ge.distancia_rosto_normalizada(
                 landmarks,
@@ -1258,7 +1371,6 @@ class Motor:
         self.divergencia = 0.0
         self.divergencia_ok = True
         self.lado_detectado = None
-        self.aviso_sem_rosto = False
 
         det_cfg = self.cfg["deteccao"]
         if det_cfg["distancia_habilitada"] and self.rosto_detectado and self.pose_confiavel:
@@ -1273,14 +1385,8 @@ class Motor:
             self.distancia_estado = ge.DISTANCIA_INDEFINIDA
 
         if not self.rosto_detectado:
-            self.app.contador_sem_rosto += 1
-            self.aviso_sem_rosto = (
-                self.sim_camera_ok
-                and self.app.contador_sem_rosto > self.cfg["deteccao"]["limite_frames_sem_rosto"]
-            )
             return
 
-        self.app.contador_sem_rosto = 0
         self.historico_esq.append(self.ratio_esq)
         self.historico_dir.append(self.ratio_dir)
         if self.pose_confiavel:
@@ -1303,19 +1409,48 @@ class Motor:
     # -----------------------------------------------------------------
     # Atualização de seleção e calibração
     # -----------------------------------------------------------------
+    def _atualizar_aviso_sem_rosto(self, agora: float, em_deteccao: bool) -> None:
+        """
+        Histerese por TEMPO do aviso "reposicione o rosto".
+
+        Antes a contagem era em frames, então o mesmo valor esperava 2 s a
+        30 fps e 4 s a 15 fps. Agora usa ``deteccao.sem_rosto_ms`` e o
+        relógio monotônico. O contador também é zerado ao sair das telas
+        de detecção -- entrar na prancha sem rosto não dispara o aviso na
+        hora.
+        """
+        if not em_deteccao:
+            self._sem_rosto_desde = None
+            self.aviso_sem_rosto = False
+            return
+
+        if self.rosto_detectado:
+            self._sem_rosto_desde = None
+            self.aviso_sem_rosto = False
+            return
+
+        # Sem frames chegando, o problema é a câmera (tratado por
+        # semSinal), não a posição do rosto. O relógio é reiniciado, mas o
+        # aviso atual é mantido para não piscar numa perda isolada de frame.
+        if not self._frame_recebido_agora:
+            self._sem_rosto_desde = None
+            return
+
+        if self._sem_rosto_desde is None:
+            self._sem_rosto_desde = agora
+            return
+
+        limite_s = self.cfg["deteccao"]["sem_rosto_ms"] / 1000.0
+        if agora - self._sem_rosto_desde >= limite_s:
+            self.aviso_sem_rosto = True
+
     def _atualizar_aviso_cabeca(self, agora: float) -> None:
         """Mantém o aviso de cabeça estável, sem piscar a cada frame."""
         estado = self.app.estado
         ativo = (
             self.rosto_detectado
             and not self.pose_confiavel
-            and estado
-            in (
-                EstadoApp.CALIB_COLETANDO,
-                EstadoApp.PRANCHA_CALIB_COLETANDO,
-                EstadoApp.ATIVO,
-                EstadoApp.PRANCHA_ATIVO,
-            )
+            and estado in ESTADOS_AVISO_CABECA
         )
         (
             self.aviso_cabeca,
@@ -1585,14 +1720,7 @@ class Motor:
             "olhosFechados": bool(self.olhos_fechados),
             "avisoSemRosto": bool(self.aviso_sem_rosto),
             "avisoCabeca": bool(
-                self.aviso_cabeca
-                and estado
-                in (
-                    EstadoApp.CALIB_COLETANDO,
-                    EstadoApp.PRANCHA_CALIB_COLETANDO,
-                    EstadoApp.ATIVO,
-                    EstadoApp.PRANCHA_ATIVO,
-                )
+                self.aviso_cabeca and estado in ESTADOS_AVISO_CABECA
             ),
             "distanciaRosto": round(float(self.distancia_rosto), 4),
             "distanciaEstado": self.distancia_estado,
@@ -1685,8 +1813,11 @@ class Motor:
                 "exibicaoConfirmacaoMs": int(det["exibicao_confirmacao_ms"]),
                 "alphaEma": float(det["alpha_ema"]),
                 "tamanhoHistoricoGrafico": int(det["tamanho_historico_grafico"]),
-                "limiteFramesSemRosto": int(det["limite_frames_sem_rosto"]),
+                "semRostoMs": int(det["sem_rosto_ms"]),
                 "divergenciaMax": float(det["divergencia_max"]),
+                "compensarYaw": bool(det["compensar_yaw"]),
+                "yawSensibilidade": float(det["yaw_sensibilidade"]),
+                "confiancaMinima": float(det["confianca_minima"]),
                 "distanciaHabilitada": bool(det["distancia_habilitada"]),
                 "distanciaLongeAbaixo": float(det["distancia_longe_abaixo"]),
                 "distanciaPertoAcima": float(det["distancia_perto_acima"]),
@@ -1701,6 +1832,8 @@ class Motor:
                 "duracaoMs": int(calib["duracao_ms"]),
                 "minAmostras": int(calib["min_amostras"]),
                 "maxYawGraus": float(calib["max_yaw_graus"]),
+                "maxPitchGraus": float(calib["max_pitch_graus"]),
+                "maxRollGraus": float(calib["max_roll_graus"]),
                 "diferencaMinima": float(calib["diferenca_minima"]),
             },
             "prancha": {
@@ -1743,26 +1876,20 @@ class Motor:
 
                 frame_proc = self._ler_frame()
 
-                estados_com_deteccao = (
-                    EstadoApp.CALIB_COLETANDO,
-                    EstadoApp.ATIVO,
-                    EstadoApp.PRANCHA_CALIB_COLETANDO,
-                    EstadoApp.PRANCHA_ATIVO,
-                    EstadoApp.MODO_CUIDADOR,
-                )
-                if self.app.estado in estados_com_deteccao:
+                estados_com_deteccao = ESTADOS_COM_DETECCAO
+                em_deteccao = self.app.estado in estados_com_deteccao
+                if em_deteccao:
                     if self.simulador:
                         self._detectar_simulado()
                     elif frame_proc is not None and self.detector is not None:
                         self._detectar(frame_proc)
                     else:
                         self.rosto_detectado = False
-                        self.aviso_sem_rosto = False
                 else:
                     self.rosto_detectado = False
                     self.olhos_fechados = False
-                    self.aviso_sem_rosto = False
 
+                self._atualizar_aviso_sem_rosto(agora, em_deteccao)
                 self._atualizar_aviso_cabeca(agora)
                 self._atualizar_aviso_distancia(agora)
                 self._atualizar_selecao(agora)
