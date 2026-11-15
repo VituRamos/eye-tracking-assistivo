@@ -39,9 +39,12 @@ models/*.task
 # Sidecar empacotado pelo PyInstaller (gerado por npm run sidecar)
 prototipo_tauri/src-tauri/resources/eye-core/
 
-# Prototipos e capturas de tela
-preview_novo_design/
+# Capturas de tela
 prototipo_tauri/capturas/
+
+# O sandbox visual preview_novo_design/ e versionado: os testes
+# (tests/test_preview_design.py) importam o pacote, entao um clone
+# precisa dele. Ele so desenha telas com Pillow, sem camera/MediaPipe.
 
 # Sistema
 .DS_Store
