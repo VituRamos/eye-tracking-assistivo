@@ -29,7 +29,7 @@ Write-Host "[3/5] Validando modelo e instalacao..."
 & $python main.py --check
 
 Write-Host "[4/5] Instalando e compilando a interface (pode demorar na primeira vez)..."
-Push-Location (Join-Path $root "prototipo_tauri")
+Push-Location (Join-Path $root "app")
 try {
     npm install
     npm run build
@@ -45,6 +45,6 @@ Write-Host "[5/5] Rodando testes e lint..."
 Write-Host ""
 Write-Host "Pronto: modelo, dependencias e interface preparados."
 Write-Host "Aplicativo Python:      .venv\Scripts\python.exe main.py"
-Write-Host "Interface (navegador):  cd prototipo_tauri; npm run dev"
-Write-Host "App desktop:            cd prototipo_tauri; npm run tauri dev"
-Write-Host "Instalador:             cd prototipo_tauri; npm run sidecar; npm run tauri build"
+Write-Host "Interface (navegador):  cd app; npm run dev"
+Write-Host "App desktop:            cd app; npm run tauri dev"
+Write-Host "Instalador:             cd app; npm run sidecar; npm run tauri build"

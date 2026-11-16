@@ -34,7 +34,7 @@ eye-tracking-assistivo/
 │   ├── assets/pictogramas/  # SVGs originais de OI, COMER, BEBER e BANHEIRO
 │   ├── renderer_cv2.py     # menu, perfis, SIM/NÃO, avisos e telas auxiliares
 │   └── board_renderer.py   # prancha: cartões, pictogramas e calibração
-├── prototipo_tauri/        # interface React/Tauri + motor empacotado
+├── app/                    # interface React/Tauri + motor empacotado
 ├── tests/                  # 269 testes (puros, sem câmera/MediaPipe)
 ├── models/                 # modelo .task versionado (478 pontos, roda offline)
 ├── perfis/                 # calibrações salvas por usuário (runtime)
@@ -82,14 +82,14 @@ A interface React/Tauri exige Node 20+ (e Rust 1.80+ apenas para o build
 desktop):
 
 ```powershell
-cd prototipo_tauri
+cd app
 npm install
 npm run dev        # navegador, com backend de demonstração
 npm run tauri dev  # app desktop com o motor Python real
 ```
 
 Para gerar o instalador Tauri, rode `npm run sidecar` antes de
-`npm run tauri build` (detalhes em `prototipo_tauri/README.md`).
+`npm run tauri build` (detalhes em `app/README.md`).
 
 ## Executando
 

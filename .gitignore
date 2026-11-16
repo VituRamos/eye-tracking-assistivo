@@ -37,10 +37,10 @@ models/*.task
 !models/face_landmarker.task
 
 # Sidecar empacotado pelo PyInstaller (gerado por npm run sidecar)
-prototipo_tauri/src-tauri/resources/eye-core/
+app/src-tauri/resources/eye-core/
 
 # Capturas de tela
-prototipo_tauri/capturas/
+app/capturas/
 
 # Sistema
 .DS_Store

@@ -132,7 +132,7 @@ O aplicativo instalado **não exige Python, Node ou internet**.
 ## Desenvolvimento
 
 ```powershell
-cd prototipo_tauri
+cd app
 npm install
 npm run dev          # interface no navegador (backend de demonstração)
 npm run tauri dev    # app desktop com o motor Python real
@@ -145,7 +145,7 @@ cai para o `.venv\Scripts\python.exe` + `ponte.py` do projeto.
 ### Gerar o motor
 
 ```powershell
-cd prototipo_tauri
+cd app
 npm run sidecar
 ```
 
@@ -188,7 +188,7 @@ pedir “Mais informações → Executar assim mesmo”.
 ## Estrutura
 
 ```
-prototipo_tauri/
+app/
 ├── src/
 │   ├── App.tsx                      # orquestração das 14 telas e atalhos
 │   ├── types.ts                     # contrato SnapshotApp + Comando
