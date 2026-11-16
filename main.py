@@ -58,12 +58,16 @@ from core.state_machine import AppState, EstadoApp
 from ui import board_renderer as ui_prancha
 from ui import renderer_cv2 as ui
 
-VERSAO = "2.2.4"
+VERSAO = "2.2.5"
 
 # Captura e detecção continuam em 1280x720 (custo baixo no MediaPipe).
 # A interface é desenhada nativamente em 1920x1080 e só então exibida.
 LARGURA_PROJETO = 1280
 ALTURA_PROJETO = 720
+
+# Tempo mínimo que um novo cartão precisa permanecer como candidato antes
+# de o foco trocar (mesma histerese do motor Tauri).
+HISTERESE_PRANCHA_MS = 120
 LARGURA_TELA = 1920
 ALTURA_TELA = 1080
 
@@ -248,7 +252,6 @@ def main(argv: list[str] | None = None) -> int:
     piscada_cfg = det_cfg["piscada"]
     diferenca_minima = calib_cfg["diferenca_minima"]
     distancia_minima_prancha = prancha_cfg["distancia_minima_boa"]
-    raio_max_prancha = prancha_cfg["raio_max"]
 
     caminho_modelo = paths.resolver_modelo(modelo_cfg["caminho"])
     try:
@@ -308,6 +311,8 @@ def main(argv: list[str] | None = None) -> int:
     suavizador_esq = ge.SuavizadorEMA(alpha=det_cfg["alpha_ema"])
     suavizador_dir = ge.SuavizadorEMA(alpha=det_cfg["alpha_ema"])
     suavizador_y = ge.SuavizadorEMA(alpha=det_cfg["alpha_ema"])
+    # A mediana corta picos isolados antes do EMA no eixo vertical.
+    mediana_y = ge.MedianaMovel(5)
 
     historico_esq: deque[float] = deque(maxlen=det_cfg["tamanho_historico_grafico"])
     historico_dir: deque[float] = deque(maxlen=det_cfg["tamanho_historico_grafico"])
@@ -328,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         suavizador_esq.reset()
         suavizador_dir.reset()
         suavizador_y.reset()
+        mediana_y.reset()
         historico_esq.clear()
         historico_dir.clear()
 
@@ -458,6 +464,15 @@ def main(argv: list[str] | None = None) -> int:
     # ele é reaproveitado para não alocar 6 MB a cada iteração.
     frame = np.zeros((altura, largura, 3), dtype=np.uint8)
 
+    # Último alvo estável de cada tela. Mantê-los entre quadros permite
+    # que a piscada confirme o que a pessoa já estava olhando -- durante
+    # o fechamento a íris se mexe e a classificação do quadro é instável.
+    lado_estavel: str | None = None
+    bloco_estavel: str | None = None
+    bloco_prancha: str | None = None
+    candidato_bloco: str | None = None
+    candidato_desde: float | None = None
+
     try:
         while True:
             agora = time.monotonic()
@@ -560,14 +575,16 @@ def main(argv: list[str] | None = None) -> int:
                     ratio_valido = (ratio_esq + ratio_dir) / 2
 
                     ratio_y_bruto = (
-                        ge.calcular_ratio_iris_y(
-                            landmarks, ge.OLHO_ESQUERDO_VERTICAL, ge.IRIS_ESQUERDA,
+                        ge.calcular_ratio_iris_y_cantos(
+                            landmarks, ge.OLHO_ESQUERDO_CANTOS, ge.IRIS_ESQUERDA,
                             largura_proc, altura_proc)
-                        + ge.calcular_ratio_iris_y(
-                            landmarks, ge.OLHO_DIREITO_VERTICAL, ge.IRIS_DIREITA,
+                        + ge.calcular_ratio_iris_y_cantos(
+                            landmarks, ge.OLHO_DIREITO_CANTOS, ge.IRIS_DIREITA,
                             largura_proc, altura_proc)
                     ) / 2
-                    ratio_y_valido = suavizador_y.atualizar(ratio_y_bruto)
+                    ratio_y_valido = suavizador_y.atualizar(
+                        mediana_y.atualizar(ratio_y_bruto)
+                    )
 
                     # EAR: usado para piscada E para descartar amostras de
                     # calibração com os olhos fechados (íris instável).
@@ -588,6 +605,39 @@ def main(argv: list[str] | None = None) -> int:
                             app.media_esquerda_calibrada,
                             app.media_direita_calibrada,
                         )
+                        if lado_detectado in ("Esquerda", "Direita") and not olhos_fechados:
+                            lado_estavel = lado_detectado
+
+                        # Cartão da prancha: projeta o olhar na grade
+                        # calibrada e troca só depois de 120 ms de
+                        # candidato estável (mesma histerese do ponte).
+                        if olhos_fechados:
+                            bloco_prancha = bloco_estavel
+                        else:
+                            bruto = (
+                                board.classificar_unidade(
+                                    ratio_valido,
+                                    ratio_y_valido,
+                                    app.referencias_prancha,
+                                )
+                                if app.referencias_prancha
+                                else None
+                            )
+                            if bruto == bloco_estavel:
+                                candidato_bloco = None
+                                candidato_desde = None
+                                bloco_prancha = bruto
+                            elif bruto != candidato_bloco or candidato_desde is None:
+                                candidato_bloco = bruto
+                                candidato_desde = agora
+                                bloco_prancha = bloco_estavel
+                            elif (agora - candidato_desde) * 1000 >= HISTERESE_PRANCHA_MS:
+                                bloco_estavel = bruto
+                                candidato_bloco = None
+                                candidato_desde = None
+                                bloco_prancha = bruto
+                            else:
+                                bloco_prancha = bloco_estavel
 
                     historico_esq.append(ratio_esq)
                     historico_dir.append(ratio_dir)
@@ -622,18 +672,21 @@ def main(argv: list[str] | None = None) -> int:
             decisao = DecisaoSelecao()
             if app.estado in (EstadoApp.ATIVO, EstadoApp.PRANCHA_ATIVO):
                 opcao_atual = None
-                if rosto_detectado and pose_confiavel:
+                if olhos_fechados:
+                    # Mantém o último alvo para a piscada confirmar.
+                    if app.estado == EstadoApp.ATIVO:
+                        opcao_atual = {"Esquerda": "SIM", "Direita": "NAO"}.get(
+                            lado_estavel
+                        )
+                    else:
+                        opcao_atual = bloco_prancha
+                elif rosto_detectado and pose_confiavel:
                     if app.estado == EstadoApp.ATIVO:
                         opcao_atual = {"Esquerda": "SIM", "Direita": "NAO"}.get(
                             lado_detectado
                         )
                     else:
-                        opcao_atual = board.classificar(
-                            ratio_valido,
-                            ratio_y_valido,
-                            app.referencias_prancha,
-                            raio_max_prancha,
-                        )
+                        opcao_atual = bloco_prancha
 
                 decisao = controlador.atualizar(opcao_atual, olhos_fechados, agora)
                 app.opcao_focada = decisao.opcao_focada

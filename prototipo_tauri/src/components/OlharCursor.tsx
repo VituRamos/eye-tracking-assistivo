@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { type BlocoId, type SnapshotApp } from "../types";
 import { criarProjecaoUnidade, referenciasCompletas } from "./mapaOlhar";
 
@@ -9,10 +9,10 @@ import { criarProjecaoUnidade, referenciasCompletas } from "./mapaOlhar";
  * tempo restante para a confirmação: no dwell da prancha o anel acompanha
  * o progresso da seleção; na calibração acompanha a coleta do cartão.
  *
- * A leitura bruta do motor (ratio da íris, comprimido em torno do centro)
- * passa pela projeção da calibração e cai no centro do cartão
- * correspondente, então o ponto aparece no mesmo lugar em que a pessoa
- * está olhando na tela.
+ * A leitura bruta do motor (ratio da íris) passa pela projeção da
+ * calibração e cai sobre o ponto do cartão correspondente, então o ponto
+ * aparece no mesmo lugar em que a pessoa está olhando na tela. Os pontos
+ * de referência são os mesmos alvos usados na calibração.
  */
 
 export interface CentroCartao {
@@ -22,7 +22,10 @@ export interface CentroCartao {
 
 interface Props {
   snapshot: SnapshotApp;
-  /** Centro de cada cartão no palco de 1280x720. */
+  /**
+   * Ponto de referência de cada cartão no palco de 1280x720 -- o mesmo
+   * alvo usado na calibração (canto externo do cartão).
+   */
   centros: Record<BlocoId, CentroCartao>;
   /**
    * Referências usadas na projeção. Por padrão, as da prancha atual;
@@ -35,6 +38,10 @@ interface Props {
 
 const RAIO_ANEL = 24;
 const CIRCUNFERENCIA = 2 * Math.PI * RAIO_ANEL;
+/** Tempo que o último ponto válido fica na tela após uma perda curta. */
+const RETENCAO_MS = 500;
+/** Opacidade do ponto retido, quando o motor não está lendo o olhar. */
+const OPACIDADE_RETIDO = 0.4;
 
 function limitar(valor: number): number {
   return Math.min(1, Math.max(0, valor));
@@ -52,23 +59,37 @@ export function OlharCursor({
 }: Props) {
   const refs = referencias ?? snapshot.pranchaCalib.referencias;
   const projecao = useMemo(() => criarProjecaoUnidade(refs), [refs]);
+  // Último ponto desenhado. Evita o "teleporte" para o centro e mantém o
+  // cursor parado quando o detector perde o rosto por um ou dois quadros.
+  const ultimo = useRef<{ ponto: { x: number; y: number }; visto: number } | null>(
+    null,
+  );
 
-  // Sem as quatro referências a projeção cairia no ratio bruto e o ponto
-  // apareceria empilhado no meio da tela -- melhor não desenhar nada.
-  if (!snapshot.gaze.valido || !referenciasCompletas(refs)) return null;
+  if (!referenciasCompletas(refs)) return null;
 
-  const { x: u, y: v } = projecao.unidade(snapshot.gaze.x, snapshot.gaze.y);
+  let ponto: { x: number; y: number } | null = null;
+  let retido = false;
 
-  // Interpolação bilinear entre os quatro centros reais dos cartões.
-  const topo = {
-    x: entre(centros.oi.x, centros.comer.x, u),
-    y: entre(centros.oi.y, centros.comer.y, u),
-  };
-  const base = {
-    x: entre(centros.beber.x, centros.banheiro.x, u),
-    y: entre(centros.beber.y, centros.banheiro.y, u),
-  };
-  const ponto = { x: entre(topo.x, base.x, v), y: entre(topo.y, base.y, v) };
+  if (snapshot.gaze.valido) {
+    const { x: u, y: v } = projecao.unidade(snapshot.gaze.x, snapshot.gaze.y);
+
+    // Interpolação bilinear entre os quatro centros reais dos cartões.
+    const topo = {
+      x: entre(centros.oi.x, centros.comer.x, u),
+      y: entre(centros.oi.y, centros.comer.y, u),
+    };
+    const base = {
+      x: entre(centros.beber.x, centros.banheiro.x, u),
+      y: entre(centros.beber.y, centros.banheiro.y, u),
+    };
+    ponto = { x: entre(topo.x, base.x, v), y: entre(topo.y, base.y, v) };
+    ultimo.current = { ponto, visto: Date.now() };
+  } else if (ultimo.current && Date.now() - ultimo.current.visto <= RETENCAO_MS) {
+    ponto = ultimo.current.ponto;
+    retido = true;
+  }
+
+  if (!ponto) return null;
 
   const fracao = limitar(progresso);
   const cor = fracao >= 0.999 ? "var(--color-confirmado)" : "var(--color-texto)";
@@ -76,6 +97,8 @@ export function OlharCursor({
   // no lugar para não "teleportar", mas fica esmaecido até o quadro voltar.
   const instavel =
     snapshot.olhosFechados || snapshot.gaze.divergenciaOk === false;
+  const opacidade = instavel ? 0.22 : retido ? OPACIDADE_RETIDO : 1;
+  const alvo = ponto;
 
   return (
     <svg
@@ -86,11 +109,11 @@ export function OlharCursor({
       aria-hidden="true"
     >
       <g
-        transform={`translate(${ponto.x.toFixed(1)} ${ponto.y.toFixed(1)})`}
-        opacity={instavel ? 0.22 : 1}
         style={{
+          transform: `translate(${alvo.x.toFixed(1)}px, ${alvo.y.toFixed(1)}px)`,
+          opacity: opacidade,
           filter: "drop-shadow(0 2px 6px rgba(0, 0, 0, 0.18))",
-          transition: "opacity 150ms linear",
+          transition: "transform 140ms linear, opacity 220ms linear",
         }}
       >
         {/* Disco de contraste: o indicador pode cair sobre o pictograma. */}

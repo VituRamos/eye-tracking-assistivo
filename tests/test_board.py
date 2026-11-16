@@ -96,6 +96,60 @@ class TestClassificacao:
         assert board.classificar(0.0, 0.0, self._referencias(), raio_max=2.0) == "oi"
 
 
+class TestProjecaoUnidade:
+    def test_alvos_de_calibracao_ficam_nos_cantos_externos(self):
+        assert set(board.ALVOS_CALIBRACAO) == set(board.IDS_BLOCOS)
+        for bloco_id in board.IDS_BLOCOS:
+            x, y = board.alvo_calibracao(bloco_id)
+            assert 0.0 < x < 1.0
+            assert 0.0 < y < 1.0
+        # Cantos externos: OI/BEBER na esquerda, COMER/BANHEIRO na direita.
+        assert board.alvo_calibracao("oi")[0] < 0.1
+        assert board.alvo_calibracao("comer")[0] > 0.9
+        assert board.alvo_calibracao("oi")[1] < 0.25
+        assert board.alvo_calibracao("beber")[1] > 0.8
+
+    def test_cada_alvo_calibrado_cai_no_proprio_canto(self):
+        esperado = {
+            "oi": (0.0, 0.0),
+            "comer": (1.0, 0.0),
+            "beber": (0.0, 1.0),
+            "banheiro": (1.0, 1.0),
+        }
+        for bloco_id, canto in esperado.items():
+            ponto = board.ALVOS_CALIBRACAO[bloco_id]
+            u, v = board.projetar_unidade(*ponto, board.ALVOS_CALIBRACAO)
+            assert (u, v) == pytest.approx(canto, abs=1e-6)
+
+    def test_cada_alvo_e_classificado_no_proprio_bloco(self):
+        for bloco_id in board.IDS_BLOCOS:
+            ponto = board.ALVOS_CALIBRACAO[bloco_id]
+            assert (
+                board.classificar_unidade(*ponto, board.ALVOS_CALIBRACAO)
+                == bloco_id
+            )
+
+    def test_centro_da_grade_e_zona_morta(self):
+        refs = board.ALVOS_CALIBRACAO
+        centro_x = sum(p[0] for p in refs.values()) / 4
+        centro_y = sum(p[1] for p in refs.values()) / 4
+        assert board.projetar_unidade(centro_x, centro_y, refs) == pytest.approx(
+            (0.5, 0.5), abs=1e-6
+        )
+        assert board.classificar_unidade(centro_x, centro_y, refs) is None
+
+    def test_fronteira_entre_cartoes_nao_escolhe(self):
+        refs = board.ALVOS_CALIBRACAO
+        # Meio da coluna, na linha de cima: u=0.5 fica na zona morta.
+        x = (refs["oi"][0] + refs["comer"][0]) / 2
+        y = refs["oi"][1]
+        assert board.classificar_unidade(x, y, refs) is None
+
+    def test_sem_as_quatro_referencias_nao_projeta(self):
+        assert board.projetar_unidade(0.5, 0.5, {"oi": (0.2, 0.2)}) is None
+        assert board.classificar_unidade(0.5, 0.5, {}) is None
+
+
 class TestDistanciaMinima:
     def test_distancia_entre_quatro_cantos(self):
         referencias = {

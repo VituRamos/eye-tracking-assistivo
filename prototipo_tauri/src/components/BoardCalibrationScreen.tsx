@@ -1,6 +1,6 @@
 import { AlertTriangle, Check } from "lucide-react";
 import { BLOCOS, bloco, type BlocoId, type SnapshotApp } from "../types";
-import { referenciasCompletas } from "./mapaOlhar";
+import { ALVOS_CALIBRACAO, referenciasCompletas } from "./mapaOlhar";
 import { OlharCursor, type CentroCartao } from "./OlharCursor";
 import { Pictograma } from "./Pictograma";
 import { ScreenHeader } from "./ScreenHeader";
@@ -34,13 +34,8 @@ function caixa(indice: number) {
   return { left: x, top: y, width: CELULA_L, height: CELULA_A };
 }
 
-/** Centros das caixas de calibração, usados pelo ponto do olhar. */
-const CENTROS: Record<BlocoId, CentroCartao> = Object.fromEntries(
-  BLOCOS.map((b, indice) => {
-    const pos = caixa(indice);
-    return [b.id, { x: pos.left + pos.width / 2, y: pos.top + pos.height / 2 }];
-  }),
-) as Record<BlocoId, CentroCartao>;
+/** Alvos de calibração: o canto externo de cada caixa. */
+const CENTROS: Record<BlocoId, CentroCartao> = ALVOS_CALIBRACAO;
 
 /** Calibração da prancha: destaca o bloco alvo e mostra a coleta. */
 export function BoardCalibrationScreen({
@@ -131,10 +126,10 @@ export function BoardCalibrationScreen({
   return (
     <div className="anim-entrada absolute inset-0 bg-fundo">
       <ScreenHeader
-        titulo={`Bloco ${calib.indice + 1} de ${calib.total}: olhe para ${
+        titulo={`Bloco ${calib.indice + 1} de ${calib.total}: olhe para o ponto de ${
           bloco(alvo ?? "oi").rotulo
         }`}
-        subtitulo="Calibração da prancha"
+        subtitulo="Calibração da prancha · olhe para o ponto no canto do cartão"
         direita={
           <span className="text-[13px] text-apoio">
             Cuidador: {calib.amostras} amostras válidas · mínimo {calib.minimo}
@@ -148,8 +143,8 @@ export function BoardCalibrationScreen({
         return (
           <div
             key={b.id}
-            className={`absolute overflow-hidden rounded-[28px] ${
-              alvoAgora ? "z-10" : ""
+            className={`absolute rounded-[28px] ${
+              alvoAgora ? "z-10" : "overflow-hidden"
             }`}
             style={{
               ...pos,
@@ -174,6 +169,16 @@ export function BoardCalibrationScreen({
                 />
                 <span className="absolute left-1/2 top-[80%] -translate-x-1/2 -translate-y-1/2 text-[46px] font-bold leading-none tracking-tight text-[#1B2430]">
                   {b.rotulo}
+                </span>
+                {/* Alvo da calibração: canto externo do cartão. */}
+                <span
+                  className="absolute z-20 grid size-[34px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-[4px] border-[#1B2430] bg-white shadow-[0_3px_12px_rgba(0,0,0,0.30)]"
+                  style={{
+                    left: ALVOS_CALIBRACAO[b.id].x - pos.left,
+                    top: ALVOS_CALIBRACAO[b.id].y - pos.top,
+                  }}
+                >
+                  <span className="size-[9px] rounded-full bg-[#1B2430]" />
                 </span>
               </>
             ) : (

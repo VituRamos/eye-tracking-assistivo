@@ -26,6 +26,9 @@ CAMINHO_PADRAO = paths.resolver_recurso("config/settings.yaml")
 
 RESOLUCOES_VALIDAS = ("1280x720", "1920x1080")
 
+# Versão do formato do settings.yaml, usada só para migrações pontuais.
+VERSAO_CONFIG = 2
+
 
 def carregar_config(caminho: str | Path | None = None) -> dict[str, Any]:
     """
@@ -112,7 +115,21 @@ def _migrar_chaves_antigas(conteudo: dict) -> None:
     ``deteccao.limite_frames_sem_rosto`` era contado em frames (~30 fps).
     Agora o aviso de rosto usa tempo real (``sem_rosto_ms``), então o valor
     antigo é convertido uma única vez para não perder o ajuste do usuário.
+
+    A piscada passou de 350 ms para 120 ms em 15/11/2026. O valor antigo
+    era longo demais para uma piscada natural, então ele é migrado uma
+    única vez -- depois que o arquivo tem ``versao_config``, a escolha do
+    usuário na tela de Configurações é respeitada.
     """
+    versao = conteudo.get("versao_config")
+    if not isinstance(versao, int) or isinstance(versao, bool) or versao < 2:
+        det = conteudo.get("deteccao")
+        if isinstance(det, dict):
+            piscada = det.get("piscada")
+            if isinstance(piscada, dict) and piscada.get("piscada_ms") == 350:
+                piscada["piscada_ms"] = 120
+    conteudo["versao_config"] = VERSAO_CONFIG
+
     det = conteudo.get("deteccao")
     if not isinstance(det, dict):
         return
@@ -265,6 +282,7 @@ _validar_config = validar_config
 def _config_padrao() -> dict[str, Any]:
     """Valores de segurança caso o YAML não possa ser lido."""
     return {
+        "versao_config": VERSAO_CONFIG,
         "deteccao": {
             "dwell_ms": 700,
             "tolerancia_perda_ms": 180,
@@ -284,7 +302,7 @@ def _config_padrao() -> dict[str, Any]:
             "piscada": {
                 "habilitada": True,
                 "limiar_ear": 0.15,
-                "piscada_ms": 350,
+                "piscada_ms": 120,
                 "foco_minimo_ms": 150,
             },
         },

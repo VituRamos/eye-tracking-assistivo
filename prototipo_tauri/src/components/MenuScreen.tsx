@@ -41,8 +41,22 @@ const ITENS: ItemMenu[] = [
   { id: "config", rotulo: "Configurações", atalho: "[F3]", Icone: Settings },
 ];
 
-function segundos(ms: number): string {
-  return `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
+/** Resumo do rosto para a tela inicial (item pedido no teste de 15/11). */
+function estadoRosto(snapshot: SnapshotApp): { valor: string; cor: string } {
+  if (!snapshot.cameraOk) return { valor: "Sem câmera", cor: "text-atencao" };
+  if (!snapshot.rostoOk) return { valor: "Sem rosto", cor: "text-atencao" };
+  if (snapshot.olhosFechados)
+    return { valor: "Olhos fechados", cor: "text-apoio" };
+  if (!snapshot.poseOk) return { valor: "Cabeça virada", cor: "text-atencao" };
+  if (snapshot.config.deteccao.distanciaHabilitada) {
+    if (snapshot.distanciaEstado === "longe")
+      return { valor: "Rosto longe", cor: "text-atencao" };
+    if (snapshot.distanciaEstado === "perto")
+      return { valor: "Rosto perto", cor: "text-atencao" };
+    if (snapshot.distanciaEstado === "boa")
+      return { valor: "Rosto na distância", cor: "text-confirmado" };
+  }
+  return { valor: "Rosto detectado", cor: "text-confirmado" };
 }
 
 export function MenuScreen({ snapshot, onIniciar, onSimNao, onAcao, onSair }: Props) {
@@ -52,6 +66,7 @@ export function MenuScreen({ snapshot, onIniciar, onSimNao, onAcao, onSair }: Pr
     : snapshot.pranchaFraca
       ? { texto: "Fraca", cor: "text-atencao" }
       : { texto: "Pendente", cor: "text-atencao" };
+  const rosto = estadoRosto(snapshot);
 
   return (
     <div className="anim-entrada absolute inset-0 bg-fundo">
@@ -97,10 +112,22 @@ export function MenuScreen({ snapshot, onIniciar, onSimNao, onAcao, onSair }: Pr
           Início
         </span>
 
-        <div className="absolute right-[56px] top-[26px]">
+        <div className="absolute right-[56px] top-[26px] flex items-center gap-[10px]">
           <StatusPill
             ativo={snapshot.cameraOk}
             texto={snapshot.cameraOk ? "Câmera pronta" : "Sem câmera"}
+          />
+          <StatusPill
+            ativo={snapshot.rostoOk && !snapshot.olhosFechados && snapshot.poseOk}
+            texto={
+              !snapshot.rostoOk
+                ? "Sem rosto"
+                : snapshot.olhosFechados
+                  ? "Olhos fechados"
+                  : !snapshot.poseOk
+                    ? "Cabeça virada"
+                    : "Rosto detectado"
+            }
           />
         </div>
 
@@ -167,9 +194,9 @@ export function MenuScreen({ snapshot, onIniciar, onSimNao, onAcao, onSair }: Pr
               cor={snapshot.cameraOk ? "text-confirmado" : "text-atencao"}
             />
             <Linha
-              rotulo="Dwell"
-              valor={segundos(snapshot.config.deteccao.dwellMs)}
-              cor="text-texto"
+              rotulo="Rosto"
+              valor={rosto.valor}
+              cor={rosto.cor}
             />
           </div>
         </section>

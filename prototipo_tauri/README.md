@@ -164,7 +164,7 @@ npm run tauri build
 Saídas:
 
 - `src-tauri\target\release\prancha-assistiva.exe` (portátil)
-- `src-tauri\target\release\bundle\nsis\Prancha Assistiva_2.2.4_x64-setup.exe`
+- `src-tauri\target\release\bundle\nsis\Prancha Assistiva_2.2.5_x64-setup.exe`
 
 O instalador é NSIS, em português (Brasil), e permite instalação por usuário
 ou para todos os usuários. Não é assinado digitalmente; o SmartScreen pode

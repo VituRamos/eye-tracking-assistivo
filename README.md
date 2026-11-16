@@ -1,4 +1,4 @@
-﻿# Eye-Tracking Assistivo V2.2.4
+﻿# Eye-Tracking Assistivo V2.2.5
 
 Sistema de comunicação assistiva por rastreamento ocular. O modo
 principal é uma **prancha de comunicação em grade** (estilo PECS) com
@@ -260,8 +260,9 @@ média e classificar cada olho isoladamente.
 - **Dwell**: 700 ms de foco contínuo (`deteccao.dwell_ms`).
 - **Tolerância**: perdas de foco de até 180 ms não zeram o progresso
   (`deteccao.tolerancia_perda_ms`) -- um frame de ruído não reinicia tudo.
-- **Piscada**: 350 ms de olho fechado, com pelo menos 150 ms de foco
-  prévio (`deteccao.piscada.*`).
+- **Piscada**: 120 ms de olho fechado, com pelo menos 150 ms de foco
+  prévio (`deteccao.piscada.*`). O alvo focado é mantido enquanto os
+  olhos estão fechados, para a piscada confirmar em vez de cancelar.
 - **Pausa**: olhos fechados pausam o dwell em vez de acumular tempo.
 - **Feedback**: bipe curto ao confirmar; bipe grave em erro.
 - A seleção confirmada fica na tela por 1,5 s e é registrada no log.
@@ -274,7 +275,7 @@ média e classificar cada olho isoladamente.
 | `deteccao.tolerancia_perda_ms` | 180 | perda de foco tolerada |
 | `deteccao.alpha_ema` | 0.35 | suavização (0=lento, 1=sem) |
 | `deteccao.piscada.habilitada` | true | confirmação por piscada |
-| `deteccao.piscada.piscada_ms` | 350 | tempo de olho fechado |
+| `deteccao.piscada.piscada_ms` | 120 | tempo de olho fechado |
 | `deteccao.divergencia_max` | 0.25 | diferença máxima entre os olhos; acima disso o quadro é ignorado |
 | `deteccao.sem_rosto_ms` | 2000 | tempo contínuo sem rosto antes de pedir para reposicionar |
 | `deteccao.confianca_minima` | 0.5 | rigor do detector de rosto (0..1) |
@@ -287,7 +288,7 @@ média e classificar cada olho isoladamente.
 | `calibracao.max_roll_graus` | 30 | inclinação lateral excessiva é ignorada |
 | `calibracao.diferenca_minima` | 0.03 | separação mínima SIM/NAO |
 | `prancha.distancia_minima_boa` | 0.02 | separação mínima entre cartões |
-| `prancha.raio_max` | 0.55 | distância máxima até o cartão mais próximo |
+| `prancha.raio_max` | 0.55 | mantido por compatibilidade; a seleção usa o quadrante calibrado |
 | `camera.*` | 0 / 1280x720 / 30 fps | câmera |
 | `camera.backend` | `auto` | `auto` (MSMF → DirectShow → padrão), `msmf`, `dshow` ou `any` |
 | `camera.timeout_inicial_ms` | 6000 | espera máxima pelo 1º frame ao abrir |
@@ -355,6 +356,23 @@ Cobertura atual (**228 testes**):
   principal renomeado para "Prancha" e correção do card "O que você pode
   fazer" no Modo Cuidador.
 - O selo "LOCAL · OFFLINE · DADOS NO COMPUTADOR" foi removido do menu.
+
+## Novo na versão 2.2.5
+
+- **Status estável**: o indicador de rosto não alterna mais entre "Rosto
+  detectado" e "Sem rosto" quando o detector perde um quadro. O motor
+  repete o último estado confiável por 700 ms; a seleção continua exigindo
+  o rosto no quadro atual.
+- **Piscadas não piscam o selo**: "Olhos fechados" só aparece quando os
+  olhos ficam fechados de verdade (350 ms ou mais).
+- **Cursor do olhar estável**: o ponto mantém a última posição por 500 ms
+  com transição suave, sem saltar para o centro nem desaparecer.
+- **Cartão mais limpo**: removidos o selo "Confirmado" e a barra de
+  progresso do cartão; o anel de foco e o aviso superior continuam.
+- **Faixa "Você escolheu" maior**, sem encostar na grade dos cartões.
+- **Modo Cuidador revisado**: o painel do olhar perdeu a grade numérica
+  que sobrepunha textos e agora mostra o cartão em foco, o estado da
+  leitura e uma orientação curta; as ações ganharam título e descrição.
 
 ## Novo na versão 2.2.4
 

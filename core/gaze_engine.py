@@ -12,6 +12,7 @@ fica em ui/renderer_cv2.py.
 from __future__ import annotations
 
 import math
+from collections import deque
 
 import numpy as np
 
@@ -52,8 +53,12 @@ def calcular_ratio_iris_x(landmarks, indices_cantos, indices_iris, largura, altu
 
 def calcular_ratio_iris_y(landmarks, indices_verticais, indices_iris, largura, altura) -> float:
     """
-    Equivalente vertical do ratio_x. Abre caminho para uma grade 2D
-    (não só SIM/NAO), útil para evoluir para um teclado por varredura.
+    Equivalente vertical do ratio_x usando as pálpebras como referência.
+
+    Mantido por compatibilidade e para depuração. A medida usada pelo
+    aplicativo é ``calcular_ratio_iris_y_cantos``: as pálpebras se movem
+    junto com o olhar (e fecham na piscada), o que torna esta referência
+    instável entre colunas. Ver a medição feita em 15/11/2026.
     """
     p_sup = landmarks[indices_verticais[0]]
     p_inf = landmarks[indices_verticais[1]]
@@ -67,6 +72,34 @@ def calcular_ratio_iris_y(landmarks, indices_verticais, indices_iris, largura, a
 
     ratio = (iris_cy - y_topo) / altura_olho
     return min(max(ratio, 0.0), 1.0)
+
+
+def calcular_ratio_iris_y_cantos(
+    landmarks, indices_cantos, indices_iris, largura, altura
+) -> float:
+    """
+    Posição vertical da íris em relação à LINHA DOS CANTOS do olho.
+
+    A linha que une os dois cantos do olho acompanha a cabeça (não a
+    pálpebra), então sofre muito menos com piscadas e com a abertura
+    variável das pálpebras. O deslocamento vertical da íris é normalizado
+    pela largura do olho -- a mesma régua do eixo horizontal -- em vez da
+    altura da pálpebra, que muda a cada quadro.
+
+    O resultado é centrado em 0.5: íris sobre a linha dos cantos = 0.5,
+    acima = menor que 0.5, abaixo = maior que 0.5. Assim continua dentro
+    de 0..1 como o ``ratio_x`` e pode ser usado direto na calibração.
+    """
+    canto_a = landmarks[indices_cantos[0]]
+    canto_b = landmarks[indices_cantos[1]]
+    y_cantos = ((float(canto_a.y) + float(canto_b.y)) / 2) * altura
+
+    ys_iris = [landmarks[i].y * altura for i in indices_iris]
+    iris_cy = float(np.mean(ys_iris))
+
+    largura_olho = abs(float(canto_a.x) - float(canto_b.x)) * largura
+    deslocamento = (iris_cy - y_cantos) / max(largura_olho, 1e-3)
+    return min(max(0.5 + deslocamento, 0.0), 1.0)
 
 
 # =====================================================================
@@ -100,6 +133,30 @@ class SuavizadorEMA:
 
     def reset(self) -> None:
         self.valor = None
+
+
+class MedianaMovel:
+    """
+    Mediana de uma janela curta, aplicada antes do EMA.
+
+    A mediana descarta picos isolados (reflexo na íris, um landmark que
+    "pula" num quadro) sem atrasar o movimento como uma média. Com janela
+    de 5 amostras a ~30 fps a resposta fica em ~80 ms, aceitável para o
+    olhar e muito mais estável que o valor bruto.
+    """
+
+    def __init__(self, tamanho: int = 5):
+        if tamanho < 1:
+            raise ValueError("tamanho da mediana deve ser >= 1")
+        self.tamanho = tamanho
+        self._valores: deque[float] = deque(maxlen=tamanho)
+
+    def atualizar(self, valor: float) -> float:
+        self._valores.append(float(valor))
+        return float(np.median(self._valores))
+
+    def reset(self) -> None:
+        self._valores.clear()
 
 
 # =====================================================================

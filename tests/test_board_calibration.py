@@ -1,10 +1,11 @@
 """Testes da persistência da calibração da prancha."""
+import json
 from datetime import datetime, timedelta
 
 import pytest
 
 from core.board import IDS_BLOCOS
-from core.board_calibration import GerenciadorPrancha, pontos_do_dados
+from core.board_calibration import MEDIDA_ATUAL, GerenciadorPrancha, pontos_do_dados
 from core.calibration import GerenciadorCalibracao
 
 
@@ -152,6 +153,29 @@ class TestValidacao:
             encoding="utf-8",
         )
         assert gerenciador.carregar("estranho") is None
+
+    def test_prancha_de_outra_medida_e_invalidada(self, gerenciador):
+        # O eixo vertical mudou de régua (pálpebras -> cantos dos olhos).
+        # Perfis antigos têm números incompatíveis e devem ser refeitos.
+        gerenciador.salvar("antiga", _pontos())
+        caminho = gerenciador.pasta / "antiga.prancha.json"
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+        dados["medida"] = "iris_palpebras_v0"
+        caminho.write_text(json.dumps(dados), encoding="utf-8")
+        assert gerenciador.carregar("antiga") is None
+
+    def test_prancha_sem_campo_medida_e_invalidada(self, gerenciador):
+        gerenciador.salvar("sem_medida", _pontos())
+        caminho = gerenciador.pasta / "sem_medida.prancha.json"
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+        dados.pop("medida", None)
+        caminho.write_text(json.dumps(dados), encoding="utf-8")
+        assert gerenciador.carregar("sem_medida") is None
+
+    def test_salvar_grava_a_medida_atual(self, gerenciador):
+        dados = gerenciador.salvar("atual", _pontos())
+        assert dados["medida"] == MEDIDA_ATUAL
+        assert gerenciador.carregar("atual") is not None
 
     def test_arquivo_incompleto_retorna_none(self, gerenciador):
         # Uma prancha só é utilizável com os 4 blocos; um arquivo

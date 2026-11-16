@@ -35,7 +35,7 @@ class TestMergeComPadroes:
         )
         cfg = carregar_config(caminho)
         assert cfg["deteccao"]["piscada"]["habilitada"] is False
-        assert cfg["deteccao"]["piscada"]["piscada_ms"] == 350
+        assert cfg["deteccao"]["piscada"]["piscada_ms"] == 120
 
     def test_limite_em_frames_e_convertido_para_ms(self, tmp_path):
         caminho = escrever_yaml(
@@ -53,6 +53,22 @@ class TestMergeComPadroes:
         )
         cfg = carregar_config(caminho)
         assert cfg["deteccao"]["sem_rosto_ms"] == 3500
+
+    def test_piscada_antiga_de_350ms_e_migrada_para_120(self, tmp_path):
+        caminho = escrever_yaml(
+            tmp_path,
+            "deteccao:\n  piscada:\n    piscada_ms: 350\n",
+        )
+        cfg = carregar_config(caminho)
+        assert cfg["deteccao"]["piscada"]["piscada_ms"] == 120
+
+    def test_piscada_350_com_versao_atual_e_respeitada(self, tmp_path):
+        caminho = escrever_yaml(
+            tmp_path,
+            "versao_config: 2\ndeteccao:\n  piscada:\n    piscada_ms: 350\n",
+        )
+        cfg = carregar_config(caminho)
+        assert cfg["deteccao"]["piscada"]["piscada_ms"] == 350
 
 
 class TestFallback:

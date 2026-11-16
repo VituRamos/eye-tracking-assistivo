@@ -1,6 +1,6 @@
 [package]
 name = "prancha-assistiva"
-version = "2.2.4"
+version = "2.2.5"
 description = "Prancha de comunicação assistiva por rastreamento ocular"
 authors = ["Eye-Tracking Assistivo"]
 edition = "2021"

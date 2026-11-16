@@ -6,7 +6,8 @@ import {
   type BlocoPrancha,
   type SnapshotApp,
 } from "../types";
-import { OlharCursor, type CentroCartao } from "./OlharCursor";
+import { OlharCursor } from "./OlharCursor";
+import { ALVOS_CALIBRACAO as CENTROS } from "./mapaOlhar";
 import { Pictograma } from "./Pictograma";
 import { ScreenHeader } from "./ScreenHeader";
 import { StatusPill } from "./StatusPill";
@@ -17,31 +18,9 @@ interface Props {
   onPointer?: (id: BlocoId | null) => void;
 }
 
-const GRADE_ESQ = 56;
-const GRADE_TOPO = 126;
-const GRADE_LARGURA = 1168;
-const GRADE_ALTURA = 550;
-const VAO = 22;
-const CELULA_L = (GRADE_LARGURA - VAO) / 2;
-const CELULA_A = (GRADE_ALTURA - VAO) / 2;
-
-function centroCartao(coluna: number, linha: number): CentroCartao {
-  return {
-    x: GRADE_ESQ + coluna * (CELULA_L + VAO) + CELULA_L / 2,
-    y: GRADE_TOPO + linha * (CELULA_A + VAO) + CELULA_A / 2,
-  };
-}
-
-/** Centros reais dos cartões no palco, usados pelo ponto do olhar. */
-const CENTROS: Record<BlocoId, CentroCartao> = {
-  oi: centroCartao(0, 0),
-  comer: centroCartao(1, 0),
-  beber: centroCartao(0, 1),
-  banheiro: centroCartao(1, 1),
-};
-
 export function BoardScreen({ snapshot, onVoltar, onPointer }: Props) {
-  const { confirmado, foco, progresso } = snapshot;  const instrucao = confirmado
+  const { confirmado, foco, progresso } = snapshot;
+  const instrucao = confirmado
     ? null
     : foco
       ? `Olhando para ${rotulo(foco)}.`
@@ -88,11 +67,11 @@ export function BoardScreen({ snapshot, onVoltar, onPointer }: Props) {
       />
 
       {confirmado && (
-        <div className="absolute left-[56px] top-[88px] z-20 flex h-[38px] w-[1168px] items-center gap-3 rounded-[12px] border-[1.5px] border-confirmado bg-confirmado-fundo px-[22px]">
-          <span className="grid size-[22px] place-items-center rounded-full bg-confirmado text-fundo">
-            <Check size={14} strokeWidth={3.2} />
+        <div className="absolute left-[56px] top-[80px] z-20 flex h-[42px] w-[1168px] items-center gap-3 rounded-[13px] border-[1.5px] border-confirmado bg-confirmado-fundo px-[24px]">
+          <span className="grid size-[26px] shrink-0 place-items-center rounded-full bg-confirmado text-fundo">
+            <Check size={16} strokeWidth={3.2} />
           </span>
-          <span className="text-[18px] font-semibold text-confirmado">
+          <span className="truncate text-[23px] font-semibold leading-none text-confirmado">
             Você escolheu: {rotulo(confirmado)}
           </span>
         </div>
@@ -109,7 +88,6 @@ export function BoardScreen({ snapshot, onVoltar, onPointer }: Props) {
             bloco={b}
             foco={foco === b.id}
             confirmado={confirmado === b.id}
-            progresso={foco === b.id ? progresso : 0}
             onHover={() => onPointer?.(b.id)}
             onSelect={() => onPointer?.(b.id)}
           />
@@ -141,7 +119,6 @@ interface CardProps {
   bloco: BlocoPrancha;
   foco: boolean;
   confirmado: boolean;
-  progresso: number;
   onHover: () => void;
   onSelect: () => void;
 }
@@ -150,7 +127,6 @@ function BoardCard({
   bloco: b,
   foco,
   confirmado,
-  progresso,
   onHover,
   onSelect,
 }: CardProps) {
@@ -183,31 +159,6 @@ function BoardCard({
       <span className="absolute left-1/2 top-[80%] -translate-x-1/2 -translate-y-1/2 text-[46px] font-bold leading-none tracking-tight text-[#1B2430]">
         {b.rotulo}
       </span>
-
-      {confirmado && (
-        <>
-          <span className="absolute right-[12px] top-[12px] grid size-[40px] place-items-center rounded-full bg-confirmado text-fundo">
-            <Check size={22} strokeWidth={3.2} />
-          </span>
-          <span className="absolute bottom-[12px] left-1/2 h-[28px] -translate-x-1/2 rounded-full bg-confirmado px-[14px] text-[14px] font-semibold leading-[28px] text-fundo">
-            Confirmado
-          </span>
-        </>
-      )}
-
-      {foco && !confirmado && progresso > 0 && (
-        <span
-          className="absolute bottom-[24px] left-[36px] h-[10px] w-[220px] overflow-hidden rounded-full"
-          style={{
-            backgroundColor: `color-mix(in srgb, ${b.cor} 82%, #1B2430)`,
-          }}
-        >
-          <span
-            className="block h-full rounded-full bg-[#1B2430] transition-[width] duration-75"
-            style={{ width: `${Math.min(100, Math.max(0, progresso * 100))}%` }}
-          />
-        </span>
-      )}
     </button>
   );
 }

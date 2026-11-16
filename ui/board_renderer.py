@@ -251,8 +251,8 @@ def desenhar_calibracao_prancha(
     lona = Lona(largura, altura)
     cabecalho(
         lona,
-        f"Bloco {indice + 1} de {total}: olhe para {board.rotulo(bloco_id)}",
-        "Calibração da prancha",
+        f"Bloco {indice + 1} de {total}: olhe para o ponto de {board.rotulo(bloco_id)}",
+        "Calibração da prancha · canto externo do cartão",
         direita_texto=f"Cuidador: {amostras} de {minimo_amostras} amostras",
         direita_tamanho=13,
     )
@@ -278,6 +278,13 @@ def desenhar_calibracao_prancha(
                 topo=topo,
                 base=base,
             )
+
+    # Alvo da coleta: o canto externo do cartão (mesmo ponto usado pelo
+    # motor). Calibrar ali aumenta a faixa vertical disponível.
+    alvo_x, alvo_y = board.ALVOS_CALIBRACAO[bloco_id]
+    px, py = alvo_x * LARGURA_BASE, alvo_y * ALTURA_BASE
+    lona.circulo((px, py), 18, CORES["branco"], CORES["texto"], 4)
+    lona.circulo((px, py), 6, CORES["texto"])
 
     _barra(lona, progresso)
     if aguardando:

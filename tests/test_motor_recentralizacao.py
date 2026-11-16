@@ -92,3 +92,54 @@ class TestSnapshotRecentralizacao:
         assert snapshot["distanciaRosto"] == pytest.approx(0.20)
         assert snapshot["distanciaEstado"] == "boa"
         assert snapshot["distanciaAviso"] is True
+
+
+class TestRetencaoExibicao:
+    """O status e o ponto não podem piscar quando o detector perde o rosto."""
+
+    def _quadro_valido(self, motor, monkeypatch, agora=100.0):
+        motor.simulador = False
+        motor.rosto_detectado = True
+        motor.pose_confiavel = True
+        motor.olhos_fechados = False
+        motor.divergencia_ok = True
+        motor.ratio_valido = 0.62
+        motor.ratio_y_valido = 0.44
+        motor.distancia_estado = "boa"
+        motor.distancia_rosto = 0.20
+        monkeypatch.setattr("ponte.time.monotonic", lambda: agora)
+        motor._memorizar_rastreamento()
+
+    def test_segura_rosto_e_ponto_por_pouco_tempo(self, motor, monkeypatch):
+        self._quadro_valido(motor, monkeypatch)
+
+        # Quadro seguinte sem rosto: o motor volta aos valores neutros.
+        motor.rosto_detectado = False
+        motor.ratio_valido = 0.5
+        motor.ratio_y_valido = 0.5
+        motor.distancia_estado = "indefinida"
+
+        retido = motor._snapshot(100.4)
+        assert retido["rostoOk"] is True
+        assert retido["gaze"]["valido"] is True
+        assert retido["gaze"]["x"] == pytest.approx(0.62)
+        assert retido["gaze"]["y"] == pytest.approx(0.44)
+        assert retido["distanciaEstado"] == "boa"
+
+        # Depois da janela de retenção, o status volta a "sem rosto".
+        assert motor._snapshot(101.0)["rostoOk"] is False
+
+    def test_retencao_nao_usa_ponto_de_piscada(self, motor, monkeypatch):
+        self._quadro_valido(motor, monkeypatch)
+        motor.olhos_fechados = True
+        motor.ratio_valido = 0.10
+        motor._memorizar_rastreamento()
+
+        assert motor._gaze_exibicao[0] == pytest.approx(0.62)
+
+    def test_piscada_curta_nao_mostra_olhos_fechados(self, motor):
+        motor.olhos_fechados = True
+        motor._olhos_fechados_desde = 10.0
+
+        assert motor._snapshot(10.12)["olhosFechados"] is False
+        assert motor._snapshot(10.60)["olhosFechados"] is True

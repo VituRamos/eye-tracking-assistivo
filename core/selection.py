@@ -48,7 +48,7 @@ class ControladorSelecao:
         dwell_ms: int = 700,
         tolerancia_perda_ms: int = 180,
         piscada_habilitada: bool = True,
-        piscada_ms: int = 350,
+        piscada_ms: int = 120,
         foco_minimo_ms: int = 150,
         exibicao_confirmacao_ms: int = 1500,
     ) -> None:

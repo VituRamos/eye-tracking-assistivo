@@ -39,22 +39,40 @@ export function CaregiverScreen({ snapshot, onAcao }: Props) {
     },
   ];
 
-  const acoes: { tecla: string; descricao: string; acao: AcaoCuidador }[] = [
-    { tecla: "[P]", descricao: "Escolher ou criar perfil", acao: "perfis" },
+  const acoes: {
+    tecla: string;
+    titulo: string;
+    descricao: string;
+    acao: AcaoCuidador;
+  }[] = [
+    {
+      tecla: "[P]",
+      titulo: "Perfis",
+      descricao: "Escolher ou criar o perfil do usuário",
+      acao: "perfis",
+    },
     {
       tecla: "[C]",
-      descricao: "Escolher qual calibração fazer",
+      titulo: "Calibrar a prancha",
+      descricao: "Ensina os 4 cartões ao olhar do usuário",
       acao: "escolher_calibracao",
     },
-    { tecla: "[V]", descricao: "Calibrar o SIM/NÃO", acao: "calibrar_sim_nao" },
+    {
+      tecla: "[V]",
+      titulo: "Calibrar o SIM / NÃO",
+      descricao: "Define o olhar para a esquerda e a direita",
+      acao: "calibrar_sim_nao",
+    },
     {
       tecla: "[R]",
-      descricao: "Recentralizar o olhar (1 ponto)",
+      titulo: "Recentralizar",
+      descricao: "Corrige o ponto com 1 olhar no centro",
       acao: "recentralizar",
     },
     {
       tecla: "[F3]",
-      descricao: "Ajustar tempos, câmera e tela",
+      titulo: "Configurações",
+      descricao: "Tempos, câmera e tamanho da tela",
       acao: "configuracoes",
     },
   ];
@@ -63,12 +81,12 @@ export function CaregiverScreen({ snapshot, onAcao }: Props) {
     <div className="anim-entrada absolute inset-0 bg-fundo">
       <ScreenHeader titulo="Modo cuidador" subtitulo={`Prancha · v${snapshot.versao}`} />
 
-      <h1 className="absolute left-1/2 top-[170px] w-full -translate-x-1/2 -translate-y-1/2 text-center text-[34px] font-bold tracking-tight text-texto">
+      <h1 className="absolute left-1/2 top-[166px] w-full -translate-x-1/2 -translate-y-1/2 text-center text-[34px] font-bold tracking-tight text-texto">
         Acompanhe e ajuste o uso
       </h1>
-      <p className="absolute left-1/2 top-[208px] w-full -translate-x-1/2 -translate-y-1/2 text-center text-[17px] text-apoio">
-        Esta área é só do cuidador. O usuário continua na prancha e escolhe
-        mantendo o olhar.
+      <p className="absolute left-1/2 top-[206px] w-[1120px] -translate-x-1/2 -translate-y-1/2 text-center text-[17px] leading-snug text-apoio">
+        O usuário escolhe mantendo o olhar no cartão — ou piscando. Use as
+        ações abaixo para calibrar e ajustar; a prancha continua funcionando.
       </p>
 
       <div className="absolute left-1/2 top-[250px] flex -translate-x-1/2 gap-[18px]">
@@ -85,19 +103,28 @@ export function CaregiverScreen({ snapshot, onAcao }: Props) {
         ))}
       </div>
 
-      <section className="absolute left-[56px] top-[386px] h-[252px] w-[572px] rounded-[20px] border border-borda bg-superficie px-[28px] py-[20px]">
-        <h2 className="text-[19px] font-semibold text-texto">O que você pode fazer</h2>
-        <div className="mt-[10px] space-y-[1px]">
+      <section className="absolute left-[56px] top-[386px] h-[252px] w-[572px] rounded-[20px] border border-borda bg-superficie px-[26px] py-[16px]">
+        <h2 className="text-[18px] font-semibold leading-tight text-texto">
+          Ações do cuidador
+        </h2>
+        <div className="mt-[6px] space-y-0">
           {acoes.map((item) => (
             <button
               key={item.tecla}
               onClick={() => onAcao(item.acao)}
-              className="flex h-[34px] w-full items-center gap-3 rounded-lg px-1 text-left transition hover:bg-neutro/60"
+              className="flex h-[37px] w-full items-center gap-3 rounded-lg px-1 text-left transition hover:bg-neutro/60"
             >
-              <span className="inline-flex h-[26px] min-w-[52px] items-center justify-center rounded-full bg-neutro px-2.5 text-[12px] font-semibold text-texto">
+              <span className="inline-flex h-[24px] min-w-[46px] shrink-0 items-center justify-center rounded-full bg-neutro px-2 text-[11.5px] font-semibold text-texto">
                 {item.tecla}
               </span>
-              <span className="text-[15px] leading-tight text-apoio">{item.descricao}</span>
+              <span className="min-w-0">
+                <span className="block text-[14px] font-semibold leading-tight text-texto">
+                  {item.titulo}
+                </span>
+                <span className="block truncate text-[11.5px] leading-tight text-apoio">
+                  {item.descricao}
+                </span>
+              </span>
             </button>
           ))}
         </div>

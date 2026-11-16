@@ -3,6 +3,9 @@
 # Ajuste estes valores sem precisar tocar em código Python.
 # =====================================================================
 
+# Versão do formato deste arquivo (usada pelo próprio app nas migrações).
+versao_config: 2
+
 deteccao:
   dwell_ms: 700            # tempo de olhar fixo para confirmar a opção
   tolerancia_perda_ms: 180 # perda curta de foco tolerada sem zerar o dwell
@@ -44,7 +47,7 @@ deteccao:
   piscada:
     habilitada: true
     limiar_ear: 0.15       # abaixo disso, considera olho fechado
-    piscada_ms: 350        # tempo mínimo de olho fechado para confirmar
+    piscada_ms: 120        # tempo mínimo de olho fechado para confirmar
     foco_minimo_ms: 150    # tempo mínimo de foco antes de aceitar a piscada
 
 calibracao:
@@ -60,9 +63,9 @@ prancha:
   # Abaixo disso, dois blocos ficam "no mesmo lugar" e a seleção fica
   # ambígua -- a calibração é marcada como fraca.
   distancia_minima_boa: 0.02
-  # Distância máxima do olhar até o cartão calibrado mais próximo para
-  # ainda considerar que o usuário está olhando para ele (evita escolher
-  # um bloco quando o olhar está no meio da tela / fora da prancha).
+  # Distância máxima do olhar até o cartão calibrado mais próximo.
+  # Mantido por compatibilidade; a classificação atual usa o quadrante da
+  # grade calibrada (com zona morta central), não este raio.
   raio_max: 0.55
 
 camera:

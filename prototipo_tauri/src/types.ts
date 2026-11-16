@@ -54,6 +54,8 @@ export interface Gaze {
   divergencia?: number;
   /** Falso quando os olhos divergem além de deteccao.divergenciaMax. */
   divergenciaOk?: boolean;
+  /** Cartão estável detectado no quadrante calibrado (null = zona morta). */
+  bloco?: string | null;
 }
 
 /** Indicador informativo de distância do rosto até a câmera. */
@@ -211,7 +213,7 @@ export const CONFIG_PADRAO: ConfigResumo = {
     distanciaSaidaMs: 600,
     piscadaHabilitada: true,
     limiarEar: 0.15,
-    piscadaMs: 350,
+    piscadaMs: 120,
     focoMinimoMs: 150,
   },
   calibracao: {
@@ -268,7 +270,7 @@ export const SNAPSHOT_INICIAL: SnapshotApp = {
   calibracaoFraca: false,
   dwellMs: 700,
   piscadaHabilitada: true,
-  versao: "2.2.4",
+  versao: "2.2.5",
   simulacao: false,
   calibracao: {
     fase: "ESQUERDA",

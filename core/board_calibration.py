@@ -21,12 +21,18 @@ from core.board import IDS_BLOCOS
 
 logger = logging.getLogger("eyetracking.prancha")
 
+# Identifica COMO o olhar foi medido. O eixo vertical mudou de "pálpebras"
+# para "linha dos cantos dos olhos" em 15/11/2026; perfis antigos guardam
+# números de outra régua e não podem ser reaproveitados.
+MEDIDA_ATUAL = "iris_cantos_v1"
+
 
 class DadosPrancha(TypedDict):
     nome: str
     alvos: dict[str, list[float]]
     data_calibracao: str
     qualidade: str
+    medida: str
 
 
 class GerenciadorPrancha:
@@ -59,6 +65,7 @@ class GerenciadorPrancha:
             },
             "data_calibracao": datetime.now().isoformat(timespec="seconds"),
             "qualidade": qualidade,
+            "medida": MEDIDA_ATUAL,
         }
         caminho = self._caminho(nome_perfil)
         caminho.write_text(json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -75,6 +82,13 @@ class GerenciadorPrancha:
             dados = json.loads(caminho.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
             logger.error("Falha ao ler a prancha de '%s': %s", nome_perfil, e)
+            return None
+        if isinstance(dados, dict) and dados.get("medida") != MEDIDA_ATUAL:
+            logger.info(
+                "Prancha de '%s' usa uma medida antiga (%r); refaça a calibração.",
+                nome_perfil,
+                dados.get("medida"),
+            )
             return None
         validado = _validar_dados(dados)
         if validado is None:
@@ -161,7 +175,10 @@ def _validar_dados(dados: object) -> DadosPrancha | None:
 
     nome = dados.get("nome", "")
     qualidade = dados.get("qualidade", "desconhecida")
+    medida = dados.get("medida")
     if not isinstance(nome, str) or not isinstance(qualidade, str):
+        return None
+    if medida != MEDIDA_ATUAL:
         return None
 
     return {
@@ -169,6 +186,7 @@ def _validar_dados(dados: object) -> DadosPrancha | None:
         "alvos": {k: [v[0], v[1]] for k, v in pontos.items()},
         "data_calibracao": data,
         "qualidade": qualidade,
+        "medida": medida,
     }
 
 

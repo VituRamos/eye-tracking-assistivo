@@ -2,7 +2,7 @@
  * Projeção do olhar para o mapa do Modo Cuidador.
  *
  * A calibração guarda o olhar em coordenadas de ratio da íris, que variam
- * pouco entre os cartões (tipicamente 0.34..0.51). Desenhar esses valores
+ * pouco entre os alvos (tipicamente 0.34..0.51). Desenhar esses valores
  * direto no quadro 0..1 empilha os quatro cartões no centro.
  *
  * Aqui o olhar bruto é convertido no layout real da prancha -- os quatro
@@ -10,7 +10,7 @@
  * quadrilátero; a conversão é a inversa da interpolação bilinear desse
  * quadrilátero:
  *
- * - cada referência cai exatamente no centro do seu cartão;
+ * - cada referência cai no canto externo do seu cartão;
  * - entre cartões o movimento é linear, então os desvios pequenos do
  *   olhar continuam visíveis (não "grudam" no centro);
  * - o eixo vertical pode estar invertido, sem tratamento especial;
@@ -20,10 +20,23 @@
  * projeção é só para o desenho.
  */
 
+import type { BlocoId } from "../types";
+
 export interface PontoMapa {
   x: number;
   y: number;
 }
+
+/**
+ * Cantos externos dos cartões no palco de 1280x720 -- os mesmos alvos
+ * usados pela calibração (espelham ``core.board.ALVOS_CALIBRACAO``).
+ */
+export const ALVOS_CALIBRACAO: Record<BlocoId, PontoMapa> = {
+  oi: { x: 88, y: 156 },
+  comer: { x: 1192, y: 156 },
+  beber: { x: 88, y: 622 },
+  banheiro: { x: 1192, y: 622 },
+};
 
 export interface ProjecaoMapa {
   /** Converte uma leitura bruta do olhar em posição no layout (0..1). */
@@ -31,20 +44,14 @@ export interface ProjecaoMapa {
 }
 
 /**
- * Projeção em coordenadas unitárias da grade: ``x = 0`` é a coluna da
- * esquerda, ``x = 1`` a da direita, ``y = 0`` a linha de cima e ``y = 1``
- * a de baixo. Serve para posicionar o olhar sobre cartões desenhados em
- * qualquer tamanho (prancha, calibração), sem depender do esquema 0.3/0.7.
+ * Projeção em coordenadas unitárias da grade: ``x = 0`` é o canto externo
+ * da coluna da esquerda, ``x = 1`` o da direita, ``y = 0`` a linha de cima
+ * e ``y = 1`` a de baixo. Serve para posicionar o olhar sobre cartões
+ * desenhados em qualquer tamanho (prancha, calibração).
  */
 export interface ProjecaoUnidade {
   unidade: (rawX: number, rawY: number) => PontoMapa;
 }
-
-/** Centro de cada cartão no layout da prancha, em unidades de (u, v). */
-const LAYOUT_ESQ = 0.3;
-const LAYOUT_DIR = 0.7;
-const LAYOUT_TOPO = 0.3;
-const LAYOUT_BASE = 0.7;
 
 const IDS = ["oi", "comer", "beber", "banheiro"] as const;
 
@@ -111,12 +118,8 @@ export function criarProjecaoMapa(
   const base = criarProjecaoUnidade(referencias);
 
   return {
-    projetar: (rawX, rawY) => {
-      const { x: u, y: v } = base.unidade(rawX, rawY);
-      return {
-        x: LAYOUT_ESQ + (LAYOUT_DIR - LAYOUT_ESQ) * u,
-        y: LAYOUT_TOPO + (LAYOUT_BASE - LAYOUT_TOPO) * v,
-      };
-    },
+    // A grade unitária já é o layout do mapa: o canto externo de cada
+    // cartão fica na borda e o centro do cartão em ~0.3/0.7.
+    projetar: (rawX, rawY) => base.unidade(rawX, rawY),
   };
 }

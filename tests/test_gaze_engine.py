@@ -18,9 +18,11 @@ from core.gaze_engine import (
     DISTANCIA_INDEFINIDA,
     DISTANCIA_LONGE,
     DISTANCIA_PERTO,
+    MedianaMovel,
     SuavizadorEMA,
     calcular_ear,
     calcular_ratio_iris_x,
+    calcular_ratio_iris_y_cantos,
     classificar_distancia,
     classificar_lado,
     compensar_ratio_por_yaw,
@@ -94,6 +96,64 @@ class TestCalcularRatioIrisX:
 
 
 # =====================================================================
+# calcular_ratio_iris_y_cantos (eixo vertical pela linha dos cantos)
+# =====================================================================
+def montar_landmarks_olho_vertical(y_cantos, y_iris, x_a=0.30, x_b=0.40):
+    """Olho com os dois cantos na mesma altura e a íris em outra."""
+    indices_iris = [469, 470, 471, 472]
+    landmarks = {
+        33: FakeLandmark(x_a, y_cantos),
+        133: FakeLandmark(x_b, y_cantos),
+    }
+    for i in indices_iris:
+        landmarks[i] = FakeLandmark((x_a + x_b) / 2, y_iris)
+    return landmarks
+
+
+class TestCalcularRatioIrisYCantos:
+    def test_iris_sobre_a_linha_dos_cantos_da_meio(self):
+        landmarks = montar_landmarks_olho_vertical(y_cantos=0.50, y_iris=0.50)
+        ratio = calcular_ratio_iris_y_cantos(
+            landmarks, (33, 133), [469, 470, 471, 472], 640, 480,
+        )
+        assert ratio == pytest.approx(0.5, abs=1e-6)
+
+    def test_iris_acima_da_linha_diminui_o_ratio(self):
+        landmarks = montar_landmarks_olho_vertical(y_cantos=0.50, y_iris=0.48)
+        ratio = calcular_ratio_iris_y_cantos(
+            landmarks, (33, 133), [469, 470, 471, 472], 640, 480,
+        )
+        assert ratio < 0.5
+
+    def test_iris_abaixo_da_linha_aumenta_o_ratio(self):
+        landmarks = montar_landmarks_olho_vertical(y_cantos=0.50, y_iris=0.52)
+        ratio = calcular_ratio_iris_y_cantos(
+            landmarks, (33, 133), [469, 470, 471, 472], 640, 480,
+        )
+        assert ratio > 0.5
+
+    def test_usa_a_largura_do_olho_como_regua(self):
+        # O mesmo deslocamento em pixels divide-se pela largura do olho:
+        # olho mais largo => ratio mais perto de 0.5.
+        estreito = calcular_ratio_iris_y_cantos(
+            montar_landmarks_olho_vertical(0.5, 0.48, 0.34, 0.36),
+            (33, 133), [469, 470, 471, 472], 640, 480,
+        )
+        largo = calcular_ratio_iris_y_cantos(
+            montar_landmarks_olho_vertical(0.5, 0.48, 0.30, 0.40),
+            (33, 133), [469, 470, 471, 472], 640, 480,
+        )
+        assert abs(estreito - 0.5) > abs(largo - 0.5)
+
+    def test_fica_limitado_entre_0_e_1(self):
+        landmarks = montar_landmarks_olho_vertical(y_cantos=0.5, y_iris=0.99)
+        ratio = calcular_ratio_iris_y_cantos(
+            landmarks, (33, 133), [469, 470, 471, 472], 640, 480,
+        )
+        assert 0.0 <= ratio <= 1.0
+
+
+# =====================================================================
 # SuavizadorEMA
 # =====================================================================
 class TestSuavizadorEMA:
@@ -118,6 +178,49 @@ class TestSuavizadorEMA:
             SuavizadorEMA(alpha=0.0)
         with pytest.raises(ValueError):
             SuavizadorEMA(alpha=1.5)
+
+
+# =====================================================================
+# MedianaMovel
+# =====================================================================
+class TestMedianaMovel:
+    def test_janela_de_um_repassa_o_valor(self):
+        mediana = MedianaMovel(1)
+        assert mediana.atualizar(0.3) == pytest.approx(0.3)
+        assert mediana.atualizar(0.9) == pytest.approx(0.9)
+
+    def test_descarta_pico_isolado(self):
+        mediana = MedianaMovel(5)
+        for valor in (0.50, 0.51, 0.50, 0.49, 0.50):
+            mediana.atualizar(valor)
+        # Um quadro com reflexo/landmark errado não move a mediana.
+        assert mediana.atualizar(0.95) == pytest.approx(0.50)
+
+    def test_acompanha_mudanca_sustentada(self):
+        mediana = MedianaMovel(5)
+        for _ in range(5):
+            mediana.atualizar(0.2)
+        for _ in range(5):
+            valor = mediana.atualizar(0.8)
+        assert valor == pytest.approx(0.8)
+
+    def test_janela_respeita_o_tamanho(self):
+        mediana = MedianaMovel(3)
+        mediana.atualizar(0.1)
+        mediana.atualizar(0.2)
+        mediana.atualizar(0.3)
+        assert mediana.atualizar(0.9) == pytest.approx(0.3)
+
+    def test_reset_limpa_o_historico(self):
+        mediana = MedianaMovel(5)
+        for _ in range(5):
+            mediana.atualizar(0.8)
+        mediana.reset()
+        assert mediana.atualizar(0.2) == pytest.approx(0.2)
+
+    def test_tamanho_invalido_levanta_erro(self):
+        with pytest.raises(ValueError):
+            MedianaMovel(0)
 
 
 # =====================================================================

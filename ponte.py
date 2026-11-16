@@ -48,7 +48,7 @@ from core.model_loader import garantir_modelo_baixado  # noqa: E402
 from core.selection import ControladorSelecao, DecisaoSelecao  # noqa: E402
 from core.state_machine import AppState, EstadoApp  # noqa: E402
 
-VERSAO = "2.2.4"
+VERSAO = "2.2.5"
 
 # Captura e detecção continuam em 1280x720 (custo baixo no MediaPipe).
 LARGURA_PROJETO = 1280
@@ -61,6 +61,7 @@ logger = logging.getLogger("eyetracking.ponte")
 # para que o ponto do olhar e os avisos de rosto/pose funcionem antes de a
 # coleta começar (no motor real o detector é a única fonte desses dados).
 ESTADOS_COM_DETECCAO = (
+    EstadoApp.MENU,
     EstadoApp.CALIB_PREPARAR,
     EstadoApp.CALIB_COLETANDO,
     EstadoApp.ATIVO,
@@ -80,6 +81,23 @@ ESTADOS_AVISO_CABECA = (
     EstadoApp.PRANCHA_CALIB_COLETANDO,
     EstadoApp.PRANCHA_ATIVO,
 )
+
+# Tempo mínimo que um novo cartão precisa permanecer como candidato antes
+# de o foco trocar. Evita piscar entre dois cartões quando o olhar passa
+# pela fronteira ou treme por um quadro.
+HISTERESE_PRANCHA_MS = 120
+
+# Tempo que o último rosto/olhar válido continua sendo exibido depois de
+# um quadro sem detecção. O MediaPipe perde o rosto por um ou dois quadros
+# ao piscar, falar ou mudar de expressão; sem essa retenção o status e o
+# ponto do olhar piscavam entre "Rosto detectado" e "Sem rosto". A seleção
+# NÃO usa este valor -- ela continua exigindo o rosto no quadro atual.
+ROSTO_GRACE_MS = 700
+
+# Piscadas duram ~120 ms. O status "Olhos fechados" só aparece quando os
+# olhos permanecem fechados de verdade; assim o selo não pisca a cada
+# piscada (a seleção continua usando a detecção imediata).
+OLHOS_FECHADOS_EXIBICAO_MS = 350
 
 
 # =====================================================================
@@ -500,6 +518,9 @@ class Motor:
         self.suavizador_dir = ge.SuavizadorEMA(alpha=det_cfg["alpha_ema"])
         self.suavizador_y = ge.SuavizadorEMA(alpha=det_cfg["alpha_ema"])
         self.suavizador_distancia = ge.SuavizadorEMA(alpha=det_cfg["alpha_ema"])
+        # A mediana corta picos isolados antes do EMA; só o eixo vertical
+        # precisa dela (o horizontal já tem separação folgada).
+        self.mediana_y = ge.MedianaMovel(5)
 
         self.historico_esq: deque[float] = deque(maxlen=det_cfg["tamanho_historico_grafico"])
         self.historico_dir: deque[float] = deque(maxlen=det_cfg["tamanho_historico_grafico"])
@@ -525,9 +546,25 @@ class Motor:
         self._distancia_ruim_desde: float | None = None
         self._distancia_boa_desde: float | None = None
         self.lado_detectado: str | None = None
+        # Último lado válido (Esquerda/Direita) para a piscada no SIM/NÃO.
+        self.lado_estavel: str | None = None
         self.decisao = DecisaoSelecao()
+        # Cartão estável do olhar na prancha, com histerese. É usado pela
+        # seleção, pelo ponto do olhar e pelo Mapa do Cuidador.
+        self.bloco_prancha: str | None = None
+        self._bloco_prancha_estavel: str | None = None
+        self._candidato_prancha: str | None = None
+        self._candidato_prancha_desde: float | None = None
         self.aviso_sem_rosto = False
         self._sem_rosto_desde: float | None = None
+        # Último quadro confiável, repetido por ROSTO_GRACE_MS no snapshot
+        # para a interface não piscar quando o detector perde o rosto.
+        self._rosto_visto_em: float | None = None
+        self._gaze_exibicao = (0.5, 0.5)
+        self._pose_exibicao = True
+        self._distancia_estado_exibicao = ge.DISTANCIA_INDEFINIDA
+        self._distancia_rosto_exibicao = 0.0
+        self._olhos_fechados_desde: float | None = None
         self.aviso_cabeca = False
         self._cabeca_ruim_desde: float | None = None
         self._cabeca_boa_desde: float | None = None
@@ -683,9 +720,15 @@ class Motor:
         self.suavizador_esq.reset()
         self.suavizador_dir.reset()
         self.suavizador_y.reset()
+        self.mediana_y.reset()
         self.suavizador_distancia.reset()
         self.historico_esq.clear()
         self.historico_dir.clear()
+        self.bloco_prancha = None
+        self._bloco_prancha_estavel = None
+        self._candidato_prancha = None
+        self._candidato_prancha_desde = None
+        self.lado_estavel = None
         self.distancia_rosto = 0.0
         self.distancia_estado = ge.DISTANCIA_INDEFINIDA
         self.distancia_aviso = False
@@ -1193,6 +1236,7 @@ class Motor:
         self.divergencia_ok = True
         self.distancia_estado = ge.DISTANCIA_INDEFINIDA
         self.lado_detectado = None
+        self.bloco_prancha = None
 
         rgb = cv2.cvtColor(frame_proc, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -1304,22 +1348,26 @@ class Motor:
             self.divergencia_ok = False
 
         ratio_y_bruto = (
-            ge.calcular_ratio_iris_y(
+            ge.calcular_ratio_iris_y_cantos(
                 landmarks,
-                ge.OLHO_ESQUERDO_VERTICAL,
+                ge.OLHO_ESQUERDO_CANTOS,
                 ge.IRIS_ESQUERDA,
                 LARGURA_PROJETO,
                 ALTURA_PROJETO,
             )
-            + ge.calcular_ratio_iris_y(
+            + ge.calcular_ratio_iris_y_cantos(
                 landmarks,
-                ge.OLHO_DIREITO_VERTICAL,
+                ge.OLHO_DIREITO_CANTOS,
                 ge.IRIS_DIREITA,
                 LARGURA_PROJETO,
                 ALTURA_PROJETO,
             )
         ) / 2
-        self.ratio_y_valido = self.suavizador_y.atualizar(ratio_y_bruto)
+        # Mediana antes do EMA: descarta o pico de um quadro sem atrasar
+        # o movimento como faria uma média longa.
+        self.ratio_y_valido = self.suavizador_y.atualizar(
+            self.mediana_y.atualizar(ratio_y_bruto)
+        )
 
         ear_esq = ge.calcular_ear(
             landmarks,
@@ -1338,12 +1386,35 @@ class Motor:
         ear_medio = (ear_esq + ear_dir) / 2
         self.olhos_fechados = ge.olho_fechado(ear_medio, self.piscada_cfg["limiar_ear"])
 
+        # Cartão da prancha: projeta o olhar na grade calibrada e aplica
+        # histerese. Com os olhos fechados mantém o último cartão estável,
+        # para a piscada confirmar o que a pessoa já estava olhando em vez
+        # de zerar o foco (a íris se mexe durante a piscada).
+        agora_deteccao = timestamp / 1000.0
+        if self.olhos_fechados:
+            self.bloco_prancha = self._bloco_prancha_estavel
+        else:
+            bruto = None
+            if (
+                self.pose_confiavel
+                and self.divergencia_ok
+                and self.app.referencias_prancha
+            ):
+                bruto = board.classificar_unidade(
+                    self.ratio_valido,
+                    self.ratio_y_valido,
+                    self.app.referencias_prancha,
+                )
+            self.bloco_prancha = self._estabilizar_bloco(bruto, agora_deteccao)
+
         if self.pose_confiavel:
             self.lado_detectado = ge.classificar_lado(
                 self.ratio_valido,
                 self.app.media_esquerda_calibrada,
                 self.app.media_direita_calibrada,
             )
+            if self.lado_detectado in ("Esquerda", "Direita") and not self.olhos_fechados:
+                self.lado_estavel = self.lado_detectado
 
         self.historico_esq.append(self.ratio_esq)
         self.historico_dir.append(self.ratio_dir)
@@ -1360,6 +1431,8 @@ class Motor:
             else:
                 self.app.amostras_ignoradas += 1
 
+        self._memorizar_rastreamento()
+
     def _detectar_simulado(self) -> None:
         self.rosto_detectado = self.sim_rosto
         self.pose_confiavel = self.sim_pose
@@ -1371,6 +1444,19 @@ class Motor:
         self.divergencia = 0.0
         self.divergencia_ok = True
         self.lado_detectado = None
+        if self.olhos_fechados:
+            self.bloco_prancha = self._bloco_prancha_estavel
+        else:
+            bruto = (
+                board.classificar_unidade(
+                    self.ratio_valido,
+                    self.ratio_y_valido,
+                    self.app.referencias_prancha,
+                )
+                if self.app.referencias_prancha
+                else None
+            )
+            self.bloco_prancha = self._estabilizar_bloco(bruto, time.monotonic())
 
         det_cfg = self.cfg["deteccao"]
         if det_cfg["distancia_habilitada"] and self.rosto_detectado and self.pose_confiavel:
@@ -1395,6 +1481,8 @@ class Motor:
                 self.app.media_esquerda_calibrada,
                 self.app.media_direita_calibrada,
             )
+            if self.lado_detectado in ("Esquerda", "Direita") and not self.olhos_fechados:
+                self.lado_estavel = self.lado_detectado
         if self.app.estado == EstadoApp.CALIB_COLETANDO:
             if self.pose_confiavel and not self.olhos_fechados and self.divergencia_ok:
                 self.app.coletas_calibracao.append(self.ratio_valido)
@@ -1409,6 +1497,23 @@ class Motor:
     # -----------------------------------------------------------------
     # Atualização de seleção e calibração
     # -----------------------------------------------------------------
+    def _memorizar_rastreamento(self) -> None:
+        """
+        Guarda o último quadro confiável para a retenção de exibição.
+
+        Só entra aqui com rosto e pose válidos. O ponto do olhar só é
+        atualizado sem piscada e sem divergência -- assim a retenção não
+        "congela" a posição errada de uma piscada.
+        """
+        if not (self.rosto_detectado and self.pose_confiavel):
+            return
+        self._rosto_visto_em = time.monotonic()
+        self._pose_exibicao = True
+        self._distancia_estado_exibicao = self.distancia_estado
+        self._distancia_rosto_exibicao = self.distancia_rosto
+        if not self.olhos_fechados and self.divergencia_ok:
+            self._gaze_exibicao = (self.ratio_valido, self.ratio_y_valido)
+
     def _atualizar_aviso_sem_rosto(self, agora: float, em_deteccao: bool) -> None:
         """
         Histerese por TEMPO do aviso "reposicione o rosto".
@@ -1494,22 +1599,57 @@ class Motor:
             det_cfg["distancia_saida_ms"] / 1000.0,
         )
 
+    def _estabilizar_bloco(self, bruto: str | None, agora: float) -> str | None:
+        """
+        Troca de cartão só depois que o novo candidato se mantém estável.
+
+        ``bruto`` é o quadrante do quadro atual (pode ser ``None`` na zona
+        morta). O valor devolvido é o cartão que o motor deve considerar
+        focado agora. A histerese evita piscar entre dois cartões quando o
+        olhar cruza a fronteira ou treme por um quadro.
+        """
+        if bruto == self._bloco_prancha_estavel:
+            self._candidato_prancha = None
+            self._candidato_prancha_desde = None
+            return bruto
+
+        if bruto != self._candidato_prancha or self._candidato_prancha_desde is None:
+            self._candidato_prancha = bruto
+            self._candidato_prancha_desde = agora
+            return self._bloco_prancha_estavel
+
+        decorrido_ms = (agora - self._candidato_prancha_desde) * 1000.0
+        if decorrido_ms >= HISTERESE_PRANCHA_MS:
+            self._bloco_prancha_estavel = bruto
+            self._candidato_prancha = None
+            self._candidato_prancha_desde = None
+            return bruto
+        return self._bloco_prancha_estavel
+
     def _atualizar_selecao(self, agora: float) -> None:
         self.decisao = DecisaoSelecao()
         if self.app.estado not in (EstadoApp.ATIVO, EstadoApp.PRANCHA_ATIVO):
+            self._bloco_prancha_estavel = None
+            self._candidato_prancha = None
+            self._candidato_prancha_desde = None
             return
 
         opcao_atual = None
-        if self.rosto_detectado and self.pose_confiavel and self.divergencia_ok:
+        if self.olhos_fechados:
+            # A íris se mexe durante a piscada; manter o último alvo é o
+            # que permite a piscada CONFIRMAR em vez de cancelar o foco.
+            if self.app.estado == EstadoApp.ATIVO:
+                opcao_atual = {"Esquerda": "SIM", "Direita": "NAO"}.get(
+                    self.lado_estavel
+                )
+            else:
+                opcao_atual = self._bloco_prancha_estavel
+        elif self.rosto_detectado and self.pose_confiavel and self.divergencia_ok:
             if self.app.estado == EstadoApp.ATIVO:
                 opcao_atual = {"Esquerda": "SIM", "Direita": "NAO"}.get(self.lado_detectado)
             else:
-                opcao_atual = board.classificar(
-                    self.ratio_valido,
-                    self.ratio_y_valido,
-                    self.app.referencias_prancha,
-                    self.raio_max_prancha,
-                )
+                # O cartão já vem estável de _detectar (com histerese).
+                opcao_atual = self.bloco_prancha
 
         self.decisao = self.controlador.atualizar(opcao_atual, self.olhos_fechados, agora)
         self.app.opcao_focada = self.decisao.opcao_focada
@@ -1703,6 +1843,39 @@ class Motor:
             prancha_progresso = 1.0
 
         det_cfg = self.cfg["deteccao"]
+        # Retenção de exibição: quando o detector perde o rosto agora, mas o
+        # último quadro confiável é recente, a interface repete o ponto e o
+        # status anteriores em vez de piscar. A seleção NÃO usa estes
+        # valores -- ela continua lendo self.rosto_detectado.
+        segurando = bool(
+            not self.simulador
+            and not self.rosto_detectado
+            and self._rosto_visto_em is not None
+            and (agora - self._rosto_visto_em) * 1000.0 <= ROSTO_GRACE_MS
+        )
+        rosto_ok = bool(self.rosto_detectado or segurando)
+        pose_ok = bool(
+            self.pose_confiavel
+            if self.rosto_detectado
+            else (self._pose_exibicao if segurando else True)
+        )
+        if segurando:
+            gaze_x, gaze_y = self._gaze_exibicao
+            distancia_rosto = self._distancia_rosto_exibicao
+            distancia_estado = self._distancia_estado_exibicao
+        else:
+            gaze_x, gaze_y = self.ratio_valido, self.ratio_y_valido
+            distancia_rosto = self.distancia_rosto
+            distancia_estado = self.distancia_estado
+
+        # Só anuncia "olhos fechados" quando não é uma piscada curta.
+        olhos_fechados = bool(
+            self.olhos_fechados
+            and self._olhos_fechados_desde is not None
+            and (agora - self._olhos_fechados_desde) * 1000.0
+            >= OLHOS_FECHADOS_EXIBICAO_MS
+        )
+
         return {
             "tipo": "snapshot",
             "versao": VERSAO,
@@ -1715,27 +1888,30 @@ class Motor:
             "backend": "simulado" if self.simulador else self.backend_camera,
             "semSinal": sem_sinal,
             "segundosSemFrame": self.segundos_sem_frame(),
-            "rostoOk": bool(self.rosto_detectado),
-            "poseOk": bool(self.pose_confiavel),
-            "olhosFechados": bool(self.olhos_fechados),
+            "rostoOk": rosto_ok,
+            "poseOk": pose_ok,
+            "olhosFechados": olhos_fechados,
             "avisoSemRosto": bool(self.aviso_sem_rosto),
             "avisoCabeca": bool(
                 self.aviso_cabeca and estado in ESTADOS_AVISO_CABECA
             ),
-            "distanciaRosto": round(float(self.distancia_rosto), 4),
-            "distanciaEstado": self.distancia_estado,
+            "distanciaRosto": round(float(distancia_rosto), 4),
+            "distanciaEstado": distancia_estado,
             # É só informativo: expõe o estado da histerese também no Modo
             # Cuidador, onde o painel do olhar mostra o indicador.
             "distanciaAviso": bool(self.distancia_aviso),
             "podeDesfazerRecentralizacao": bool(self._recentralizacao_anterior),
             "gaze": {
-                "x": self._limitar(self.ratio_valido),
-                "y": self._limitar(self.ratio_y_valido),
+                "x": self._limitar(gaze_x),
+                "y": self._limitar(gaze_y),
                 "esq": self._limitar(self.ratio_esq),
                 "dir": self._limitar(self.ratio_dir),
-                "valido": bool(self.rosto_detectado and self.pose_confiavel),
+                "valido": bool(rosto_ok and pose_ok),
                 "divergencia": round(float(self.divergencia), 4),
                 "divergenciaOk": bool(self.divergencia_ok),
+                # Cartão estável (com histerese) usado pela seleção e pelo
+                # Mapa do Cuidador. None = zona morta ou sem calibração.
+                "bloco": self.bloco_prancha,
             },
             "foco": foco,
             "progresso": progresso,
@@ -1888,8 +2064,14 @@ class Motor:
                 else:
                     self.rosto_detectado = False
                     self.olhos_fechados = False
+                    self.bloco_prancha = None
 
                 self._atualizar_aviso_sem_rosto(agora, em_deteccao)
+                if self.olhos_fechados:
+                    if self._olhos_fechados_desde is None:
+                        self._olhos_fechados_desde = agora
+                else:
+                    self._olhos_fechados_desde = None
                 self._atualizar_aviso_cabeca(agora)
                 self._atualizar_aviso_distancia(agora)
                 self._atualizar_selecao(agora)
