@@ -42,10 +42,6 @@ prototipo_tauri/src-tauri/resources/eye-core/
 # Capturas de tela
 prototipo_tauri/capturas/
 
-# O sandbox visual preview_novo_design/ e versionado: os testes
-# (tests/test_preview_design.py) importam o pacote, entao um clone
-# precisa dele. Ele so desenha telas com Pillow, sem camera/MediaPipe.
-
 # Sistema
 .DS_Store
 Thumbs.db

@@ -34,9 +34,8 @@ eye-tracking-assistivo/
 │   ├── assets/pictogramas/  # SVGs originais de OI, COMER, BEBER e BANHEIRO
 │   ├── renderer_cv2.py     # menu, perfis, SIM/NÃO, avisos e telas auxiliares
 │   └── board_renderer.py   # prancha: cartões, pictogramas e calibração
-├── preview_novo_design/    # sandbox visual isolado (não entra no .exe)
 ├── prototipo_tauri/        # interface React/Tauri + motor empacotado
-├── tests/                  # 253 testes (puros, sem câmera/MediaPipe)
+├── tests/                  # 269 testes (puros, sem câmera/MediaPipe)
 ├── models/                 # modelo .task versionado (478 pontos, roda offline)
 ├── perfis/                 # calibrações salvas por usuário (runtime)
 ├── logs/                   # logs de sessão (runtime)
@@ -159,15 +158,6 @@ captura e a detecção continuam em 1280x720 (`frame_proc`), o que mantém o
 custo do MediaPipe baixo; só a composição visual usa o canvas 1080p
 (`LARGURA_TELA`/`ALTURA_TELA` em `main.py`). Em monitores menores o
 fullscreen reduz a imagem proporcionalmente, sem perder o layout.
-
-A pasta `preview_novo_design/` continua no repositório como sandbox
-visual isolado, útil para revisar telas sem câmera. Ela não é importada
-pelo aplicativo e não entra no `.exe`.
-
-```bash
-python -m preview_novo_design --render-only   # gera os PNGs de referência
-python -m preview_novo_design                 # abre a navegação interativa
-```
 
 ## Controles
 
